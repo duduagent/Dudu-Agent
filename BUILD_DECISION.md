@@ -1,5 +1,7 @@
 # Dudu — Keputusan Pembangunan dan Kriteria End-to-End
 
+> **Catatan:** dokumen keputusan awal. Arsitektur desktop dan strategi packaging terkini ada di [README.md](README.md) dan [PACKAGING.md](PACKAGING.md).
+
 Tanggal: 11 Oktober 2026
 Status: keputusan arah pembangunan; implementasi dan pengujian belum terverifikasi.
 
