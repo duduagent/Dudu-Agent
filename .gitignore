@@ -1,0 +1,28 @@
+# Dependensi & hasil build
+node_modules/
+dist/
+release/
+*.tsbuildinfo
+
+# Rahasia & konfigurasi lokal (JANGAN pernah di-commit)
+.env
+.env.*
+!.env.example
+dudu.env
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.cer
+
+# Data pengguna & runtime lokal
+.dudu-data/
+.dudu-data
+*.log
+.DS_Store
+Thumbs.db
+
+# Hasil audit UI (screenshot & laporan audit — dapat dibuat ulang)
+ui-audit*/
+ui-contrast/

@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "Chrome → Vite dev server (npm run dev)",
+      "url": "http://localhost:5174",
+      "webRoot": "${workspaceFolder}"
+    }
+  ]
+}

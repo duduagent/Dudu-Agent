@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="duduFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#33343a"/><stop offset="1" stop-color="#101014"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="#FCFBF8"/>
+  <rect x="24" y="24" width="976" height="976" rx="204" fill="none" stroke="#E8E7E3" stroke-width="8"/>
+  <g transform="translate(112 112) scale(6.6)">
+    <path d="M28 56a32 32 0 0 1 64 0" fill="none" stroke="#C79A42" stroke-width="7" stroke-linecap="round"/>
+    <rect x="26" y="34" width="68" height="60" rx="30" fill="url(#duduFace)" stroke="#E8E7E3" stroke-width="3"/>
+    <rect x="18" y="52" width="12" height="22" rx="6" fill="#C79A42"/>
+    <rect x="90" y="52" width="12" height="22" rx="6" fill="#C79A42"/>
+    <path d="M44 60q5 6 10 0" fill="none" stroke="#F2DFB3" stroke-width="4" stroke-linecap="round"/>
+    <path d="M66 60q5 6 10 0" fill="none" stroke="#F2DFB3" stroke-width="4" stroke-linecap="round"/>
+    <path d="M52 74q8 6 16 0" fill="none" stroke="#F2DFB3" stroke-width="4" stroke-linecap="round"/>
+    <ellipse cx="42" cy="45" rx="9" ry="5" fill="#ffffff" opacity=".14"/>
+    <rect x="34" y="96" width="52" height="16" rx="8" fill="#FCFBF8" stroke="#E8E7E3" stroke-width="2.5"/>
+    <circle cx="60" cy="104" r="6.5" fill="#C79A42"/>
+    <text x="60" y="107.5" text-anchor="middle" font-size="9" font-weight="700" fill="#FCFBF8" font-family="sans-serif">D</text>
+  </g>
+</svg>

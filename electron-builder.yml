@@ -1,0 +1,86 @@
+appId: ai.dudu.desktop
+productName: Dudu AI
+copyright: Dudu AI
+directories:
+  output: release
+  buildResources: build
+asar: true
+compression: normal
+electronLanguages: [en-US, id]
+# Hanya yang dibutuhkan runtime. .env, source, tes, source map, dan server development TIDAK ikut.
+files:
+  - package.json
+  - dist/**
+  - electron/**
+  - server/*.mjs
+  - "!server/chat-server.mjs"
+  - build/icon.png
+  - "!**/*.map"
+  - "!**/.env*"
+extraMetadata:
+  main: electron/main.mjs
+
+win:
+  target:
+    - { target: nsis, arch: [x64] }
+    - { target: portable, arch: [x64] }
+  icon: build/icon.png
+  # Belum ditandatangani: tanpa sertifikat, electron-builder melewati signing otomatis. Lihat PACKAGING.md.
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Dudu AI
+  deleteAppDataOnUninstall: false   # data pengguna (percakapan, dudu.env) tidak dihapus saat uninstall
+  artifactName: Dudu-AI-Setup-${version}-${arch}.${ext}
+portable:
+  artifactName: Dudu-AI-Portable-${version}-${arch}.${ext}
+
+# macOS hanya bisa dibangun di mesin macOS (electron-builder menolak build mac dari Windows/Linux).
+# Build ini dipakai oleh workflow .github/workflows/build.yml di runner macos-latest.
+mac:
+  target:
+    - { target: dmg, arch: [x64, arm64] }
+    - { target: zip, arch: [x64, arm64] }
+  icon: build/icon.png
+  category: public.app-category.productivity
+  darkModeSupport: true
+  identity: null            # tanpa sertifikat: hasil TIDAK ditandatangani (lihat PACKAGING.md)
+  notarize: false
+  artifactName: Dudu-AI-Portable-${version}-${arch}.${ext}
+  extendInfo:
+    NSHumanReadableCopyright: "Dudu AI"
+dmg:
+  artifactName: Dudu-AI-${version}-${arch}.${ext}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - { target: AppImage, arch: [x64] }
+    - { target: deb, arch: [x64] }
+  icon: build/icon.png
+  category: Utility
+  executableName: dudu-ai
+  syncDesktopName: true
+  synopsis: Asisten AI pribadi
+  description: Dudu AI — asisten AI pribadi untuk perencanaan, analisis, dan eksekusi tugas.
+  maintainer: Dudu AI <dudu-ai@example.com>   # PLACEHOLDER: ganti dengan kontak pengelola sebenarnya sebelum rilis publik
+  desktop:
+    entry:
+      Name: Dudu AI
+      StartupWMClass: Dudu AI
+appImage:
+  artifactName: Dudu-AI-${version}-${arch}.${ext}
+deb:
+  packageName: dudu-ai
+  packageCategory: utils
+  artifactName: dudu-ai_${version}_${arch}.${ext}

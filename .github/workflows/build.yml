@@ -1,0 +1,120 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  test:
+    name: Typecheck, test, build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      - run: npm run verify
+
+  linux:
+    name: Linux (AppImage + deb)
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      - run: npm run dist:linux
+      - name: Smoke test aplikasi desktop (sandbox Chromium tetap aktif)
+        run: |
+          # Runner Ubuntu 24.04 membatasi user namespace tanpa profil AppArmor; sandbox Chromium memerlukannya.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get update && sudo apt-get install -y xvfb
+          xvfb-run -a node scripts/smoke-desktop.mjs release/linux-unpacked/dudu-ai
+      - name: Paket ZIP + checksum
+        run: node scripts/package-release.mjs linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dudu-ai-linux
+          if-no-files-found: error
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/Dudu-AI-*-Linux-x64.zip
+            release/SHA256SUMS-*.txt
+
+  windows:
+    name: Windows (NSIS installer + portable)
+    needs: test
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      # Tanpa CSC_LINK/CSC_KEY_PASSWORD hasilnya TIDAK ditandatangani (lihat PACKAGING.md).
+      - run: npm run dist:win
+      - name: Smoke test aplikasi desktop
+        run: node scripts/smoke-desktop.mjs "release/win-unpacked/Dudu AI.exe"
+      - name: Paket ZIP + checksum
+        run: node scripts/package-release.mjs windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dudu-ai-windows
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/Dudu-AI-*-Windows-x64.zip
+            release/SHA256SUMS-*.txt
+
+  macos:
+    name: macOS (DMG installer + ZIP portable, x64 + arm64)
+    needs: test
+    runs-on: macos-14
+    env:
+      # Tanpa sertifikat: artefak TIDAK ditandatangani dan TIDAK dinotarize (lihat PACKAGING.md).
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+      - run: npm ci
+      - run: npm run dist:mac
+      - name: "Smoke test aplikasi desktop (opsional: runner macOS berbasis GUI)"
+        continue-on-error: true
+        run: node scripts/smoke-desktop.mjs "release/mac/Dudu AI.app/Contents/MacOS/Dudu AI"
+      - name: Paket ZIP + checksum
+        run: node scripts/package-release.mjs macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dudu-ai-macos
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/Dudu-AI-Portable-*.zip
+            release/Dudu-AI-*-macOS-x64.zip
+            release/SHA256SUMS-*.txt
+
+  release:
+    name: Publish GitHub Release (tag v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          draft: true
