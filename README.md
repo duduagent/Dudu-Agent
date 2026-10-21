@@ -31,7 +31,7 @@ Aplikasi asisten AI (React 18 + TypeScript + Vite) yang tersedia sebagai **aplik
 - **Memory** (catatan eksplisit), **Tools & Integrations**, **Agent Workforce**, **Pengaturan**: menampilkan status kemampuan yang sebenarnya.
 - **Belum ada** (dinyatakan di UI): OCR, pemrosesan video, kamera/mikrofon, embedding semantik, agen LLM otonom, integrasi pihak ketiga. Vision dan transkripsi audio aktif hanya bila model dikonfigurasi dan **belum diuji dengan layanan nyata**. Gateway baru juga **belum diuji live dengan kuota provider nyata** (semua jalurnya diuji dengan mock; tidak ada kunci API asli dalam proses pembuatan release ini).
 
-> Status verifikasi yang jujur per target ada di [TEST_REPORT.md](TEST_REPORT.md) dan [GATEWAY_REPORT.md](GATEWAY_REPORT.md). Detail packaging dan rilis ada di [PACKAGING.md](PACKAGING.md).
+> Status verifikasi yang jujur per target ada di [TEST_REPORT.md](TEST_REPORT.md) dan [GATEWAY_REPORT.md](GATEWAY_REPORT.md). Audit kesiapan rilis terakhir: [READINESS_AUDIT.md](READINESS_AUDIT.md). Detail packaging dan rilis ada di [PACKAGING.md](PACKAGING.md).
 
 ## Unduhan v0.6.0 (21 Oktober 2026)
 

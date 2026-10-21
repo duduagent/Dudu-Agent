@@ -1,5 +1,7 @@
 # Laporan Audit, Implementasi & Verifikasi — Dudu AI
 
+> **Audit kesiapan rilis v0.6.2 (22 Oktober 2026):** lihat **[READINESS_AUDIT.md](READINESS_AUDIT.md)** — matriks status komponen inti, bukti E2E 12 tahap, failure recovery, validasi provider, status Linux/macOS/CI, temuan keamanan, dan keputusan kesiapan (**READY WITH LIMITATIONS**: siap untuk rilis Windows terverifikasi; belum siap lintas platform).
+
 > **Status terbaru — 22 Oktober 2026, rilis v0.6.2: PASS.** `npm run verify` lulus: typecheck 0 error, **251 tes / 23 file**, build produksi. `npm run verify:ui` (baru) LOLOS: audit responsif 16 rute × 6 lebar **0 temuan** + audit kontras ter-render **0 temuan**. `npm run smoke:provider` (baru): 7 lolos · 3 belum terverifikasi (butuh kredensial asli) · 0 gagal. Smoke biner desktop **51/51**; kompatibilitas upgrade **LOLUS**. Repositori Git diinisialisasi (branch `main`, 1 commit, 128 file; backup penuh 3,7 GB dibuat lebih dulu; tanpa tag/remote/push). Rincian: [TEST_REPORT.md](TEST_REPORT.md) §14, [PACKAGING.md](PACKAGING.md), [CHANGELOG.md](CHANGELOG.md).
 >
 > Status v0.6.0 (21 Oktober 2026): PASS — 233 tes/20 file, smoke 51/51, Windows + tarball Linux + paket sumber. Increment 0.6.0 menambah: pembatalan kooperatif misi (`cancelled`), jembatan Chat → Misi, panel bukti kapabilitas, menjalankan kapabilitas dari konteks misi, dan perkakas pengemasan rilis (§11).

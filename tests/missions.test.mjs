@@ -116,6 +116,24 @@ describe('kegagalan: klasifikasi, retry terbatas, pemulihan', () => {
     const m2 = await s.retry(m1.id)
     expect(m2.state).toBe('completed'); expect(m2.failure).toBeNull(); expect(m2.acceptance.every((c) => c.status === 'passed')).toBe(true)
   })
+  it('kegagalan MENYIMPAN artefak → Needs Attention (retryable), artefak tidak diklaim sukses', async () => {
+    // Disk menolak menulis report.md → langkah s4 gagal, misi tidak boleh jadi "Completed".
+    const broken = { ...fs, writeFile: async (p, data, ...a) => { if (String(p).endsWith('report.md')) throw new Error('EACCES: disk penuh'); return fs.writeFile(p, data, ...a) } }
+    const s = mk({ fs: broken })
+    const f = await up('sales.csv', fx('sales.csv'))
+    const m = await s.approve((await s.create({ goal: 'analisis yang artefaknya gagal ditulis', fileId: f.id })).id)
+    expect(m.state).toBe('needs_attention')
+    expect(m.failure).toMatchObject({ class: 'tool_error', retryable: true })
+    expect(m.failure.message).toMatch(/Gagal menulis artefak/)
+    expect(m.artifacts).toEqual([])              // tidak ada artefak yang diklaim berhasil
+    const s4 = m.steps.find((x) => x.id === 's4')
+    expect(s4.status).toBe('failed')
+    expect(s4.attempts.length).toBe(2)          // retry otomatis 1x lalu berhenti (batas)
+    expect(s4.attempts.every((a) => a.ok === false)).toBe(true)
+    // Tidak boleh ada kriteria yang dianggap lulus.
+    expect(m.acceptance.every((c) => c.status === 'pending')).toBe(true)
+  })
+
   it('verifikasi independen menangkap artefak yang dirusak (hash tidak cocok) → Needs Attention, tidak "Completed"', async () => {
     const tamper = { ...fs, writeFile: async (p, data, ...a) => fs.writeFile(p, String(p).endsWith('report.md') ? Buffer.from(String(data).replace('Jumlah baris data: 4', 'Jumlah baris data: 99')) : data, ...a) }
     const s = mk({ fs: tamper })
