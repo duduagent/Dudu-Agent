@@ -371,6 +371,8 @@ code{background:var(--smoke);border-radius:4px;padding:1px 5px;font-family:ui-mo
 .cap-arg .input{width:100%;min-width:0;flex:0 0 auto;height:auto;font-size:12.5px;padding:6px 9px}
 .cap-confirm{flex-direction:row;align-items:center;gap:7px}
 .cap-confirm input{width:auto;flex:none}
+.cap-approval{margin-top:8px;padding:9px 11px;border:1px solid var(--warn-line);background:var(--warn-bg);border-radius:var(--r-sm);display:flex;flex-direction:column;gap:6px}
+.cap-approval-actions{display:flex;gap:6px;flex-wrap:wrap}
 .card-main{display:flex;gap:12px;min-width:0;flex:1 1 320px}.card-text{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1 1 220px}
 .card-text strong{font-size:13.5px;overflow-wrap:anywhere}.card-actions{display:flex;gap:6px;flex-wrap:wrap}
 .thumb{width:46px;height:46px;border-radius:8px;object-fit:cover;flex:0 0 auto;background:var(--smoke)}.thumb.ph{display:flex;align-items:center;justify-content:center;color:var(--ink3)}

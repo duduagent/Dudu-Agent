@@ -2,7 +2,13 @@
 
 Alat: **Electron 44 + electron-builder 26** (`electron-builder.yml`). Electron dipilih karena aplikasi sudah berbasis React/Vite + Node, Chromium ter-bundel memberi perilaku identik di semua OS (termasuk Web Notification yang dipakai fitur Reminder), dan tidak perlu toolchain Rust/WebKit. Tidak ada migrasi framework UI.
 
-Rilis berjalan: **v0.6.0** (21 Oktober 2026). Versi paket: `package.json` + `package-lock.json` = `0.6.0`.
+Rilis berjalan: **v0.6.3** (22 Oktober 2026). Versi paket: `package.json` + `package-lock.json` = `0.6.3`.
+Rilis sebelumnya yang tetap tersedia di `release/`: 0.5.0, 0.6.0, 0.6.1, 0.6.2 (hash masing-masing tidak berubah).
+
+> Increment 0.6.3 tidak mengubah cara pemaketan: struktur build, `electron-builder.yml`, dan skrip pengemasan tetap sama.
+> Yang berubah: isi aplikasi (audit terpadu, gerbang izin, approval terikat tindakan), pemeriksaan tambahan
+> `npm run check:imports` yang ikut `npm run verify`, dan dua dokumen baru (`SECURITY_NOTES.md`, `READINESS_AUDIT.md`)
+> yang ikut dikemas.
 
 ## 1. Target dan status (v0.6.0) — apa yang benar-benar dibangun & diuji
 
@@ -88,7 +94,29 @@ Ukuran v0.6.0: installer Windows ≈ 103,4 MB, portable ≈ 103,2 MB, `app.asar`
 ## 8. Platform & dependensi sistem (Linux)
 x86_64. `.deb` memakai dependensi standar Electron (GTK3, NSS, libnotify, XDG utils — lihat `dpkg-deb -I`). Pada v0.5.0 diuji pada Ubuntu 24.04 (container). Untuk rilis 0.6.0, paket Linux harus dibangun ulang di runner Linux dan diuji ulang di sana sebelum dipublikasikan.
 
-⚠️ **Portabel Linux — izin eksekusi sudah benar sejak 0.6.2.** Saat arsip dibuat dari Windows, bit POSIX tidak bisa disimpan oleh `bsdtar`, sehingga pengguna lama harus `chmod +x dudu-ai` secara manual. `scripts/tar-portable.mjs` menulis header ustar sendiri dengan mode **0755** untuk `dudu-ai`, `chrome-sandbox`, dan `chrome_crashpad_handler` (0644 untuk berkas lain). Verifikasi: `tar -tvf Dudu-AI-0.6.2-linux-x64-portable.tar.gz` → `-rwxr-xr-x ... dudu-ai`. Paket ini **tetap belum dijalankan di Linux** — gunakan `.deb`/AppImage dari CI untuk rilis resmi.
+⚠️ **Portabel Linux — izin eksekusi sudah benar sejak 0.6.2.** Saat arsip dibuat dari Windows, bit POSIX tidak bisa disimpan oleh `bsdtar`, sehingga pengguna lama harus `chmod +x dudu-ai` secara manual. `scripts/tar-portable.mjs` menulis header ustar sendiri dengan mode **0755** untuk `dudu-ai`, `chrome-sandbox`, dan `chrome_crashpad_handler` (0644 untuk berkas lain). Verifikasi: `tar -tvf Dudu-AI-0.6.3-linux-x64-portable.tar.gz` → `-rwxr-xr-x … dudu-ai` (pada 0.6.3: 20 entri, 3 berkas mode 0755). Paket ini **tetap belum dijalankan di Linux** — gunakan `.deb`/AppImage dari CI untuk rilis resmi.
+
+## 8.1 Artefak rilis v0.6.3 (dibangun & diverifikasi di mesin ini)
+
+| Artefak | Ukuran | SHA-256 (potongan) | Dibangun | Dijalankan/diuji |
+|---|---|---|---|---|
+| `Dudu-AI-Setup-0.6.3-x64.exe` | 103.428.563 B | `338AA52E…20771` | ✅ | ✅ dipasang senyap + upgrade 0.5.0 → 0.6.3 LOLUS, smoke 51/51 |
+| `Dudu-AI-Portable-0.6.3-x64.exe` | 103.182.047 B | `273153A3…CF14B` | ✅ | ✅ smoke 51/51 (biner unpacked & asar terverifikasi) |
+| `Dudu-AI-0.6.3-Windows-x64.zip` | 206.876.613 B | `96AD1763…F776` | ✅ | ✅ isi ZIP diperiksa |
+| `Dudu-AI-0.6.3-Windows-x64-Setup.zip` | 103.582.429 B | `F91EEDE9…C69D` | ✅ | ✅ isi ZIP diperiksa |
+| `Dudu-AI-0.6.3-linux-x64-portable.tar.gz` | 122.824.946 B | `E7D00390…1D6E` | ✅ (dir + tar 0755) | ❌ **belum dijalankan di Linux** |
+| `Dudu-AI-0.6.3-Linux-x64.zip` | 122.521.062 B | `EB05D424…FCF6` | ✅ | ❌ **belum dijalankan di Linux** |
+| `Dudu-AI-0.6.3-source.zip` | 671.556 B | `9D196D6A…1DCD` | ✅ | ❌ belum dibangun ulang dari paket ini |
+
+Daftar hash lengkap: `release/SHA256SUMS-0.6.3.txt` (+ per-platform: `SHA256SUMS-0.6.3-{Windows,Linux,source}.txt`).
+
+**Tidak dikarang:** `.deb` dan `.AppImage` **tidak dibangun** di mesin ini (`fpm`/symlink tidak tersedia di Windows) — `package-release.mjs linux` melaporkannya sebagai "TIDAK DIBANGUN" (exit 5) dan **tidak** memasukkannya ke ZIP/daftar hash. Tidak ada artefak macOS sama sekali.
+
+**Artefak rilis historis tidak diubah** (dicek ulang pada sesi 0.6.3): hash 0.5.0 / 0.6.0 / 0.6.1 / 0.6.2 tetap sama dengan yang tercatat pada masanya.
+
+### Pemeriksaan tambahan pada v0.6.3
+- `npm run check:imports` (baru) memuat **13 modul server dengan ESM native Node**. Ini menutup celah "hijau palsu": pada sesi ini `redact` terdeklarasi ganda membuat aplikasi **terpaket gagal start** sementara seluruh tes tetap hijau (vitest/esbuild mentoleransi linking ESM yang Node/Electron tolak). Skrip ini kini ikut `npm run verify`.
+- `node scripts/verify-asar.mjs release/win-unpacked/resources/app.asar 0.6.3` → **SEMUA PEMERIKSAAN LULUS**, tanpa kunci API literal di dalam asar.
 
 ## 9. Placeholder yang HARUS diganti sebelum rilis publik
 - `homepage` di `package.json` (`https://example.com/dudu-ai`) dan `linux.maintainer` di `electron-builder.yml` (`Dudu AI <dudu-ai@example.com>`): dibutuhkan metadata `.deb`; nilainya bukan kontak sebenarnya.

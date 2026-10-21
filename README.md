@@ -26,12 +26,13 @@ Aplikasi asisten AI (React 18 + TypeScript + Vite) yang tersedia sebagai **aplik
 - **Knowledge Base**: indeks dokumen + pencarian kata kunci (BM25) dengan sumber (halaman/slide/sheet); dapat disertakan sebagai konteks chat.
 - **Misi & Tugas**: misi *analisis data* (CSV/TSV/JSON/JSONL/XLSX) dengan kriteria penerimaan, persetujuan manusia, eksekusi tool lokal, verifikasi independen, dan artefak; plus tab **Pengingat** (Reminder). \*Perencana misi tetap deterministik berbasis aturan (bukan LLM).
 - **v0.6.0 — "Unified Capability & Execution Architecture"**: pembatalan misi kooperatif (`cancelled`, berhenti di antara langkah), jembatan **Chat → Misi** (tombol "Jadikan Misi Analisis Data" saat ada lampiran tabular siap + tujuan di composer; misi lahir sebagai **Draft** dan tetap butuh persetujuan), menjalankan **kapabilitas dari konteks misi** (hanya yang `runnable`; hasil dilampirkan sebagai bukti), dan panel "Bukti kapabilitas" di detail misi. Cakupan rilis: TAHAP 0–4 (sebagian); TAHAP 5–7 masih rencana. Rincian status per tahap: [ROADMAP_V0.6.0.md](ROADMAP_V0.6.0.md), [CHANGELOG.md](CHANGELOG.md).
-- **v0.6.1 (WIP) — Pusat Eksekusi & hardening aksesibilitas**: halaman **Pusat Eksekusi** dengan *timeline eksekusi hidup* (langkah, stempel waktu, durasi, percobaan, status kriteria — semuanya dari state server, tanpa persentase karangan) dan *pusat "butuh perhatian"* (approval tertunda, gagal yang bisa diulang, perlu tinjauan manusia, integrasi belum terkonfigurasi). Kontras diperketat: tombol emas kini 5.47:1 (AA), batas kontrol form 3.16:1 (WCAG 1.4.11), teks emas pada latar terang diperbaiki; audit kontras ter-render (**0 temuan** di 15 halaman) dan audit responsif (**0 temuan overflow** di 90 kombinasi).
+- **v0.6.3 — Unified Execution Audit, izin granular, approval terikat tindakan**: satu jejak audit append-only (`capability-audit.jsonl`) untuk **misi dan kapabilitas** dengan skema seragam (`eventId`, `eventType`, `missionId`, `taskId`, `execId`, `capabilityId`, `actor`, `outcome`, `correlationId`) — 19 jenis event, rahasia selalu disamarkan, dan penulisan audit untuk kontrol keamanan bersifat **fail-closed** (tindakan berisiko tidak berjalan bila audit tak bisa ditulis). Izin sekarang **granular dan ditegakkan di batas eksekusi** (bukan hanya di UI): `file:read`, `file:write`, `process:exec`, `network:out`, `credential:use`, `side-effect:external`, `plugin:exec`, `mcp:exec`; default tetap aman (izin jaringan/efek samping/credential hanya diberikan bila konfigurasi nyata ada + konfirmasi eksplisit). Persetujuan kini **terikat tindakan**: menjalankan kapabilitas di dalam misi memerlukan persetujuan khusus yang terikat kapabilitas + operasi + target + parameter (digest) + masa berlaku, dan **dipakai sekali** — persetujuan umum atas misi bukan izin tanpa batas. Rincian skema, izin nyata, dan batas yang masih terbuka: [SECURITY_NOTES.md](SECURITY_NOTES.md).
+- **v0.6.1 — Pusat Eksekusi & hardening aksesibilitas**: halaman **Pusat Eksekusi** dengan *timeline eksekusi hidup* (langkah, stempel waktu, durasi, percobaan, status kriteria — semuanya dari state server, tanpa persentase karangan) dan *pusat "butuh perhatian"* (approval tertunda, gagal yang bisa diulang, perlu tinjauan manusia, integrasi belum terkonfigurasi). Kontras diperketat: tombol emas kini 5.47:1 (AA), batas kontrol form 3.16:1 (WCAG 1.4.11), teks emas pada latar terang diperbaiki; audit kontras ter-render (**0 temuan** di 15 halaman) dan audit responsif (**0 temuan overflow** di 90 kombinasi).
 - **UI/UX overhaul (v0.6.0)**: satu design system (ivory hangat · putih · champagne gold · charcoal) dengan token warna/tipografi/spasi/radius/elevasi, komponen panel/kartu/formulir/notifikasi/badge yang konsisten, 15 halaman dirapikan (Input Data, MCP, CLI, Plugin, Connector, Skill, Settings, Akun & OAuth, Files, Memory, Tools, Workforce, Misi, Knowledge Base, Chat), dan audit responsif otomatis **0 temuan overflow di 90 kombinasi** (15 halaman × 6 lebar). Rincian token & aturan main: [UI_DESIGN_SYSTEM.md](UI_DESIGN_SYSTEM.md).
 - **Memory** (catatan eksplisit), **Tools & Integrations**, **Agent Workforce**, **Pengaturan**: menampilkan status kemampuan yang sebenarnya.
 - **Belum ada** (dinyatakan di UI): OCR, pemrosesan video, kamera/mikrofon, embedding semantik, agen LLM otonom, integrasi pihak ketiga. Vision dan transkripsi audio aktif hanya bila model dikonfigurasi dan **belum diuji dengan layanan nyata**. Gateway baru juga **belum diuji live dengan kuota provider nyata** (semua jalurnya diuji dengan mock; tidak ada kunci API asli dalam proses pembuatan release ini).
 
-> Status verifikasi yang jujur per target ada di [TEST_REPORT.md](TEST_REPORT.md) dan [GATEWAY_REPORT.md](GATEWAY_REPORT.md). Audit kesiapan rilis terakhir: [READINESS_AUDIT.md](READINESS_AUDIT.md). Detail packaging dan rilis ada di [PACKAGING.md](PACKAGING.md).
+> Status verifikasi yang jujur per target ada di [TEST_REPORT.md](TEST_REPORT.md) dan [GATEWAY_REPORT.md](GATEWAY_REPORT.md). Audit kesiapan rilis terakhir: [READINESS_AUDIT.md](READINESS_AUDIT.md). Skema audit, izin, dan approval: [SECURITY_NOTES.md](SECURITY_NOTES.md). Detail packaging dan rilis ada di [PACKAGING.md](PACKAGING.md).
 
 ## Unduhan v0.6.0 (21 Oktober 2026)
 
@@ -45,6 +46,21 @@ Berkas ada di folder `release/`; hash lengkap di `release/SHA256SUMS-0.6.0.txt`.
 | Semua OS (build sendiri) | — | `Dudu-AI-0.6.0-source.zip` | Tersedia (tanpa `node_modules`) |
 
 Paket ZIP siap pakai: `Dudu-AI-0.6.0-Windows-x64.zip` (installer + portable + dokumentasi), `Dudu-AI-0.6.0-Linux-x64.zip` (tarball + dokumentasi). Semua paket **belum ditandatangani** (tidak ada sertifikat kode-signing) dan **belum diverifikasi di mesin bersih selain Windows asli**.
+
+## Unduhan v0.6.3 (22 Oktober 2026)
+
+Berkas ada di folder `release/`; hash lengkap di `release/SHA256SUMS-0.6.3.txt`.
+
+| Platform | Installer | Portable | Status |
+|---|---|---|---|
+| **Windows 10/11 x64** | `Dudu-AI-Setup-0.6.3-x64.exe` | `Dudu-AI-Portable-0.6.3-x64.exe` | **Tersedia & diuji** — dipasang senyap, upgrade dari 0.5.0 diuji, smoke 51/51 |
+| **Linux x64** | `dudu-ai_0.6.3_amd64.deb` — *belum ada* | `Dudu-AI-0.6.3-x86_64.AppImage` — *belum ada*; tersedia `Dudu-AI-0.6.3-linux-x64-portable.tar.gz` (sudah berisi izin eksekusi 0755, tinggal extract & jalankan `./dudu-ai`) | **Sebagian** — paket resmi `.deb`/AppImage dibangun di Linux (`npm run dist:linux`); tarball **belum dijalankan di Linux** |
+| **macOS x64/arm64** | `Dudu-AI-0.6.3-<arch>.dmg` — *belum ada* | `Dudu-AI-Portable-0.6.3-<arch>.zip` — *belum ada* | **Harus dibangun di macOS** (`npm run dist:mac` atau job CI `macos-14`) |
+| Semua OS (build sendiri) | — | `Dudu-AI-0.6.3-source.zip` | Tersedia (tanpa `node_modules`) |
+
+Paket ZIP siap pakai: `Dudu-AI-0.6.3-Windows-x64.zip` (installer + portable + dokumentasi), `Dudu-AI-0.6.3-Windows-x64-Setup.zip` (installer saja), `Dudu-AI-0.6.3-Linux-x64.zip` (tarball + dokumentasi). Semua paket **belum ditandatangani**. Rilis sebelumnya (0.5.0 / 0.6.0 / 0.6.1 / 0.6.2) tetap tersedia di `release/` dengan hash masing-masing dan **tidak diubah**.
+
+> **Perubahan yang memengaruhi pemakai dari v0.6.2:** menjalankan kapabilitas dari dalam misi kini memerlukan persetujuan khusus (terikat kapabilitas + parameter + masa berlaku, dipakai sekali). Persetujuan umum atas misi tidak lagi cukup untuk tindakan tersebut.
 
 ## Unduhan v0.6.2 (22 Oktober 2026)
 

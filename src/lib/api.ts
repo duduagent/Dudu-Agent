@@ -192,6 +192,19 @@ export interface UsageSummaryRow {
 
 export type MissionState = 'draft' | 'queued' | 'running' | 'needs_attention' | 'completed' | 'failed' | 'cancelled'
 export interface MissionStep { id: string; tool: string; title: string; status: 'pending' | 'running' | 'done' | 'failed'; attempts: Array<{ execId: string; startedAt: number; finishedAt?: number; ok?: boolean; error?: string; class?: string; attempt: number }>; output?: unknown }
+export interface MissionApproval {
+  id: string
+  kind: 'capability'
+  capabilityId: string
+  operation: string
+  target: string | null
+  paramsDigest: string | null
+  status: 'pending' | 'approved' | 'rejected' | 'consumed'
+  actor: string
+  createdAt: number
+  expiresAt: number
+  decidedAt: number | null
+}
 export interface Mission {
   id: string; title: string; goal: string; template: string; planner: string; fileId: string; fileName: string; state: MissionState; createdAt: number; updatedAt: number
   policy: { requiresApproval: boolean; writeScope: string; network: boolean; destructive: boolean; maxAutoRetries: number }
@@ -289,6 +302,11 @@ export const api = {
   approveMission: async (id: string) => (await apiJson<{ mission: Mission }>('POST', `/api/missions/${id}/approve`)).mission,
   retryMission: async (id: string) => (await apiJson<{ mission: Mission }>('POST', `/api/missions/${id}/retry`)).mission,
   cancelMission: async (id: string) => (await apiJson<{ mission: Mission }>('POST', `/api/missions/${id}/cancel`)).mission,
+  missionApprovals: async (id: string) => (await apiJson<{ approvals: MissionApproval[] }>('GET', `/api/missions/${id}/approvals`)).approvals,
+  missionRequestApproval: async (id: string, body: { capabilityId: string; operation?: string; target?: string | null; args?: Record<string, unknown> }) =>
+    (await apiJson<{ approval: MissionApproval }>('POST', `/api/missions/${id}/approvals`, body)).approval,
+  missionDecideApproval: async (id: string, approvalId: string, decision: 'approved' | 'rejected' = 'approved') =>
+    (await apiJson<{ approval: MissionApproval }>('POST', `/api/missions/${id}/approvals/${approvalId}`, { decision })).approval,
   deleteMission: (id: string) => apiJson<{ deleted: boolean }>('DELETE', `/api/missions/${id}`),
   artifactUrl: (id: string, name: string) => `/api/missions/${id}/artifacts/${encodeURIComponent(name)}`,
   evidenceUrl: (id: string, name: string) => `/api/missions/${id}/evidence/${encodeURIComponent(name)}`,
@@ -436,7 +454,13 @@ export const api = {
   capabilityGet: async (id: string) => (await apiJson<{ capability: CapabilityEntry }>('GET', `/api/capability-registry/${encodeURIComponent(id)}`)).capability,
   capabilityValidate: async (id: string) => apiJson<{ capability: CapabilityEntry; ok: boolean; verdict: string; checks: CapabilityValidationCheck[]; error: string | null; at: number }>('POST', `/api/capability-registry/${encodeURIComponent(id)}/validate`, {}),
   capabilityRun: async (id: string, args: Record<string, unknown> = {}, confirm = false) => apiJson<CapabilityRunResult>('POST', `/api/capability-registry/${encodeURIComponent(id)}/run`, { args, confirm }),
-  capabilityAudit: async (limit = 50) => apiJson<{ events: Array<Record<string, unknown>>; count: number; file: string }>('GET', `/api/capability-registry/audit?limit=${limit}`),
+  capabilityAudit: async (limit = 50, filters: { missionId?: string | null; eventType?: string | null; correlationId?: string | null } = {}) => {
+    const q = new URLSearchParams({ limit: String(limit) })
+    if (filters.missionId) q.set('missionId', filters.missionId)
+    if (filters.eventType) q.set('eventType', filters.eventType)
+    if (filters.correlationId) q.set('correlationId', filters.correlationId)
+    return apiJson<{ events: Array<Record<string, unknown>>; count: number; file: string }>('GET', `/api/capability-registry/audit?${q.toString()}`)
+  },
 
   /* ---------- input data → Knowledge Base (v0.4.0) ---------- */
   kbAddText: async (title: string, text: string) =>

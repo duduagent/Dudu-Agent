@@ -23,29 +23,60 @@ function MissionCapabilityRunner({ m, caps, onChanged, onActivity }: { m: Missio
   const [argVals, setArgVals] = useState<Record<string, string>>({})
   const [approved, setApproved] = useState<Record<string, boolean>>({})
   const [last, setLast] = useState<{ id: string; ok: boolean; text: string } | null>(null)
+  // Persetujuan yang terikat tindakan: { capabilityId → { id, status } }
+  const [approvals, setApprovals] = useState<Record<string, { id: string; status: string }>>({})
   const runnable = caps.filter(c => c.runnable)
   if (!runnable.length) return null
 
   const schemaOf = (cap: CapabilityEntry) => (cap.meta?.inputSchema ?? null) as { properties?: Record<string, { type?: string; description?: string }>; required?: string[] } | null
 
+  const payloadOf = (cap: CapabilityEntry) => {
+    const schema = schemaOf(cap)
+    const required = Array.isArray(schema?.required) ? schema.required : []
+    const payload: Record<string, unknown> = {}
+    for (const key of required) {
+      const raw = (argVals[`${cap.id}:${key}`] ?? '').trim()
+      if (!raw) throw new Error(`Argumen "${key}" wajib diisi untuk ${cap.name}.`)
+      const t = schema?.properties?.[key]?.type
+      payload[key] = t === 'integer' || t === 'number' ? Number(raw) : raw
+    }
+    return payload
+  }
+
   async function run(cap: CapabilityEntry) {
     setBusy(cap.id); setErr(null)
     try {
-      const schema = schemaOf(cap)
-      const required = Array.isArray(schema?.required) ? schema.required : []
-      const payload: Record<string, unknown> = {}
-      for (const key of required) {
-        const raw = (argVals[`${cap.id}:${key}`] ?? '').trim()
-        if (!raw) { setErr(`Argumen "${key}" wajib diisi untuk ${cap.name}.`); return }
-        const t = schema?.properties?.[key]?.type
-        payload[key] = t === 'integer' || t === 'number' ? Number(raw) : raw
-      }
+      const payload = payloadOf(cap)
       const r = await api.missionRunCapability(m.id, cap.id, payload, approved[cap.id] === true)
       onChanged(r.mission)
       setLast({ id: cap.id, ok: r.run.ok, text: r.run.ok ? `Berhasil dalam ${r.run.durationMs} ms — bukti dilampirkan: ${r.evidence.name}` : (r.run.error ?? 'Kapabilitas gagal dijalankan.') })
       onActivity(`Kapabilitas dijalankan pada misi "${m.title}": ${cap.name} — ${r.run.ok ? 'berhasil' : 'gagal'}`)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Gagal menjalankan kapabilitas.')
+      const msg = e instanceof Error ? e.message : 'Gagal menjalankan kapabilitas.'
+      setErr(msg)
+      // Persetujuan khusus tindakan dibutuhkan → tawarkan permintaan persetujuan.
+      if (/belum disetujui|persetujuan|approval/i.test(msg)) {
+        try {
+          const rec = await api.missionRequestApproval(m.id, { capabilityId: cap.id, operation: 'run', args: payloadOf(cap) })
+          setApprovals((a) => ({ ...a, [cap.id]: { id: rec.id, status: rec.status } }))
+        } catch { /* pesan galat asli tetap tampil */ }
+      }
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function decide(cap: CapabilityEntry, decision: 'approved' | 'rejected') {
+    const rec = approvals[cap.id]
+    if (!rec) return
+    setBusy(cap.id); setErr(null)
+    try {
+      const out = await api.missionDecideApproval(m.id, rec.id, decision)
+      setApprovals((a) => ({ ...a, [cap.id]: { id: out.id, status: out.status } }))
+      onActivity(decision === 'approved' ? `Persetujuan tindakan diberikan: ${cap.name}` : `Persetujuan ditolak: ${cap.name}`)
+      if (decision === 'approved') await run(cap)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Gagal memproses persetujuan.')
     } finally {
       setBusy(null)
     }
@@ -78,6 +109,17 @@ function MissionCapabilityRunner({ m, caps, onChanged, onActivity }: { m: Missio
                   </label>
                 )}
                 {last?.id === cap.id && <span className={cx('meta', last.ok ? 'text-ok' : 'text-danger')}>{last.text}</span>}
+                {approvals[cap.id]?.status === 'pending' && (
+                  <div className="cap-approval" role="group" aria-label={`Persetujuan tindakan ${cap.name}`}>
+                    <span className="meta">Tindakan ini menunggu persetujuan khusus (terikat pada kapabilitas &amp; parameter yang diklik).</span>
+                    <div className="cap-approval-actions">
+                      <button type="button" className="btn-primary" disabled={busy === cap.id} onClick={() => void decide(cap, 'approved')}>
+                        {busy === cap.id ? 'Memproses…' : 'Setujui tindakan'}
+                      </button>
+                      <button type="button" className="btn-ghost" disabled={busy === cap.id} onClick={() => void decide(cap, 'rejected')}>Tolak</button>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="card-actions">
                 <button type="button" className="btn-primary" disabled={busy === cap.id || (needsSideEffectApproval && approved[cap.id] !== true)} onClick={() => void run(cap)}>

@@ -17,6 +17,8 @@ import { createConnectorStore, ConnectorError } from './connectors.mjs'
 import { createSkillStore, SkillError } from './skills.mjs'
 import { CapabilityError, createCapabilityRegistry } from './capability-registry.mjs'
 import { DuduError } from './errors.mjs'
+import { AuditError } from './execution-audit.mjs'
+import { PermissionError } from './permissions.mjs'
 
 const json = (status, body) => ({ status, body })
 const INLINE_IMAGE = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
@@ -40,10 +42,10 @@ function download({ bytes, name, mime, inline }) {
 /**
  * @param {{ getConfig: () => ReturnType<import('./config.mjs').resolveConfig>, dataDir: string, fetchImpl?: typeof fetch }} opts
  */
-export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch }) {
+export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, audit = null }) {
   const files = createFileStore({ dataDir, maxUploadBytes: getConfig().maxUploadBytes })
   const kb = createKnowledgeBase({ dataDir, files })
-  const missions = createMissionService({ dataDir, files })
+  const missions = createMissionService({ dataDir, files, audit })
 
   /* ---------- gateway (satu-satunya jalur LLMSec untuk seluruh modul) ---------- */
   const credentials = createCredentialStore(dataDir)
@@ -75,6 +77,7 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch }) 
     mcpClient,
     mcpTools,
     now: () => Date.now(),
+    ...(audit ? { audit } : {}),
   })
   /** token → pengguna (bila header/cookie sesi dikirim); tanpa sesi = null (mode lokal tetap berfungsi penuh). */
   async function currentUser(req) {
@@ -113,7 +116,12 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch }) 
       }))
     }
     if (path === '/api/capability-registry/audit' && method === 'GET') {
-      return json(200, await registry.audit(query.get('limit') ?? 50))
+      return json(200, await registry.audit({
+        limit: query.get('limit') ?? 50,
+        missionId: query.get('missionId') ?? null,
+        eventType: query.get('eventType') ?? null,
+        correlationId: query.get('correlationId') ?? null,
+      }))
     }
     const capRoute = /^\/api\/capability-registry\/([^/]+)(?:\/(validate|run))?$/.exec(path)
     if (capRoute) {
@@ -374,13 +382,43 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch }) 
       const { readFile } = await import('node:fs/promises')
       return download({ bytes: await readFile(e.path), name: e.evidence.name, mime: e.evidence.mime, inline: false })
     }
+    if ((m = /^\/api\/missions\/([^/]+)\/approvals$/.exec(path)) && method === 'POST') {
+      if (!isMissionId(m[1])) throw new MissionError(400, 'bad_id', 'ID misi tidak valid.')
+      const b = readJson()
+      const user = await currentUser(req)
+      const rec = await missions.requestApproval(m[1], {
+        capabilityId: b.capabilityId, operation: b.operation ?? 'run', target: b.target ?? null,
+        args: b.args ?? {}, actor: user?.email ?? 'local', ttlMs: b.ttlMs,
+      })
+      return json(201, { approval: rec })
+    }
+    if ((m = /^\/api\/missions\/([^/]+)\/approvals\/([^/]+)$/.exec(path))) {
+      if (!isMissionId(m[1])) throw new MissionError(400, 'bad_id', 'ID misi tidak valid.')
+      if (method === 'GET') return json(200, { approvals: await missions.listApprovals(m[1]) })
+      if (method === 'POST') {
+        const b = readJson()
+        const user = await currentUser(req)
+        const rec = await missions.decideApproval(m[1], m[2], { decision: b.decision ?? 'approved', actor: user?.email ?? 'local', ttlMs: b.ttlMs })
+        return json(200, { approval: rec })
+      }
+    }
     if ((m = /^\/api\/missions\/([^/]+)\/capabilities\/([^/]+)\/run$/.exec(path)) && method === 'POST') {
       if (!isMissionId(m[1])) throw new MissionError(400, 'bad_id', 'ID misi tidak valid.')
       const mission = await missions.get(m[1])
       if (!mission) return json(404, { error: 'not_found', message: 'Misi tidak ditemukan.' })
       const b = readJson()
       const user = await currentUser(req)
-      const run = await registry.run(decodeURIComponent(m[2]), { args: b.args ?? {}, confirm: b.confirm === true, actor: user?.email ?? 'local' })
+      const capId = decodeURIComponent(m[2])
+      const args = b.args ?? {}
+      // Approval WAJIB terikat pada tindakan (kapabilitas + operasi + parameter) — persetujuan
+      // umum atas misi bukan izin tanpa batas. Persetujuan yang kedaluwarsa / tidak cocok ditolak.
+      const found = missions.findValidApproval(mission, { capabilityId: capId, operation: 'run', target: b.target ?? null, args })
+      if (!found.rec) throw new MissionError(409, 'approval_required', 'Tindakan ini belum disetujui. Minta persetujuan khusus untuk tindakan ini terlebih dahulu.')
+      if (found.expired) throw new MissionError(403, 'approval_expired', 'Persetujuan tindakan ini sudah kedaluwarsa; minta persetujuan baru.')
+      if (found.mismatch) throw new MissionError(409, 'approval_scope_mismatch', 'Parameter tindakan berubah setelah persetujuan; minta persetujuan baru.')
+      const run = await registry.run(capId, { args, confirm: b.confirm === true, actor: user?.email ?? 'local', missionId: mission.id, correlationId: mission.correlationId })
+      // Persetujuan dipakai satu kali saja → tindakan berikutnya perlu persetujuan baru.
+      await missions.consumeApproval(m[1], found.rec.id)
       const evidence = await missions.attachEvidence(m[1], { capabilityId: run.capability.id, ok: run.ok, result: { ok: run.ok, result: run.result, error: run.error, at: run.at, durationMs: run.durationMs }, actor: user?.email ?? 'local' })
       return json(200, { run, evidence, mission: await missions.get(m[1]) })
     }
@@ -483,6 +521,8 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch }) 
       if (e instanceof ConnectorError) return json(e.status, { error: e.code, message: e.message })
       if (e instanceof SkillError) return json(e.status, { error: e.code, message: e.message })
       if (e instanceof CapabilityError) return json(e.status, { error: e.code, message: e.message })
+      if (e instanceof PermissionError) return json(e.status, { error: e.code, message: e.message, ...(e.detail ? { detail: e.detail } : {}) })
+      if (e instanceof AuditError) return json(e.status, { error: e.code, message: e.message })
       if (e instanceof DuduError) {
         console.error(`[api] ${req.method} ${String(req.path).split('?')[0]}: ${e.code}: ${String(e?.message || '').slice(0, 200)}`) // tanpa kunci/isi file
         return json(e.status, { error: e.code, message: e.message })

@@ -1,8 +1,11 @@
 # Laporan Audit, Implementasi & Verifikasi — Dudu AI
 
-> **Audit kesiapan rilis v0.6.2 (22 Oktober 2026):** lihat **[READINESS_AUDIT.md](READINESS_AUDIT.md)** — matriks status komponen inti, bukti E2E 12 tahap, failure recovery, validasi provider, status Linux/macOS/CI, temuan keamanan, dan keputusan kesiapan (**READY WITH LIMITATIONS**: siap untuk rilis Windows terverifikasi; belum siap lintas platform).
+> **Audit kesiapan rilis v0.6.3 (22 Oktober 2026):** lihat **[READINESS_AUDIT.md](READINESS_AUDIT.md)** — matriks status komponen inti, bukti E2E 12 tahap, failure recovery, validasi provider, status Linux/macOS/CI, **fase Unified Execution Audit & Granular Permission**, temuan keamanan, dan keputusan kesiapan (**READY WITH LIMITATIONS**: siap untuk rilis Windows terverifikasi; belum siap lintas platform).
+> **Rincian skema event, izin yang benar-benar ditegakkan, mekanisme approval, dan batas yang masih terbuka: [SECURITY_NOTES.md](SECURITY_NOTES.md).**
 
-> **Status terbaru — 22 Oktober 2026, rilis v0.6.2: PASS.** `npm run verify` lulus: typecheck 0 error, **251 tes / 23 file**, build produksi. `npm run verify:ui` (baru) LOLOS: audit responsif 16 rute × 6 lebar **0 temuan** + audit kontras ter-render **0 temuan**. `npm run smoke:provider` (baru): 7 lolos · 3 belum terverifikasi (butuh kredensial asli) · 0 gagal. Smoke biner desktop **51/51**; kompatibilitas upgrade **LOLUS**. Repositori Git diinisialisasi (branch `main`, 1 commit, 128 file; backup penuh 3,7 GB dibuat lebih dulu; tanpa tag/remote/push). Rincian: [TEST_REPORT.md](TEST_REPORT.md) §14, [PACKAGING.md](PACKAGING.md), [CHANGELOG.md](CHANGELOG.md).
+> **Status terbaru — 22 Oktober 2026, rilis v0.6.3: PASS.** `npm run verify` lulus: typecheck 0 error, **check:imports OK** (13 modul server dimuat ESM native Node), **269 tes / 24 file**, build produksi. `npm run verify:ui` LOLOS: audit responsif 16 rute × 6 lebar **0 temuan** + audit kontras ter-render **0 temuan**. `npm run smoke:provider`: 8 lolos · 3 belum terverifikasi (butuh kredensial asli) · 0 gagal. Smoke biner desktop **51/51**; `verify-asar` 0.6.3 **LOLUS**; upgrade **LOLUS**. Increment 0.6.3 menambah: jejak audit terpadu (misi + kapabilitas), gerbang izin granular di batas eksekusi, dan approval terikat tindakan. Rincian: §15, [READINESS_AUDIT.md](READINESS_AUDIT.md) §L, [CHANGELOG.md](CHANGELOG.md).
+>
+> Status v0.6.2 (22 Oktober 2026): PASS — 252 tes/23 file, smoke 51/51, Windows + tarball Linux + paket sumber; audit kesiapan rilis lengkap. Increment 0.6.2 menambah: audit responsif + kontras ter-render (`verify:ui`), uji provider (`smoke:provider`), paket portabel Linux 0755, dan pelaporan kesiapan. Rincian: §14, [READINESS_AUDIT.md](READINESS_AUDIT.md).
 >
 > Status v0.6.0 (21 Oktober 2026): PASS — 233 tes/20 file, smoke 51/51, Windows + tarball Linux + paket sumber. Increment 0.6.0 menambah: pembatalan kooperatif misi (`cancelled`), jembatan Chat → Misi, panel bukti kapabilitas, menjalankan kapabilitas dari konteks misi, dan perkakas pengemasan rilis (§11).
 >
@@ -310,3 +313,58 @@ Hash lengkap (7 artefak: 2 exe Windows, 2 ZIP Windows, tarball + ZIP Linux, ZIP 
 - Tidak ada dependensi baru.
 - **Tidak ada** rilis/ZIP Linux `.deb`/AppImage dan **tidak ada** artefak macOS (harus dibangun di OS masing-masing; CI sudah disiapkan). Rilis Windows 0.6.0 + tarball Linux + paket sumber tersedia.
 - Tidak ada uji provider AI nyata (butuh kunci API asli), tidak ada scheduler/multi-agent, tidak ada OCR/embedding, tidak ada MCP HTTP — semuanya masih di luar jangkauan increment ini.
+
+---
+
+## 15. v0.6.3 — Unified Execution Audit, Granular Permission, Approval Terikat Tindakan
+
+### 15.1 Temuan awal (audit repositori aktual)
+
+| # | Temuan | Lokasi | Dampak |
+|---|---|---|---|
+| 1 | `POST /api/missions/:id/capabilities/:capId/run` **tidak memeriksa approval misi** sama sekali | `server/api.mjs` (sebelum perubahan) | Persetujuan umum atas misi = izin tanpa batas |
+| 2 | Jejak audit hanya berisi event kapabilitas; **aktivitas misi tidak masuk** | `server/capability-registry.mjs` | Tidak bisa ditelusuri "siapa/komponen apa, tindakan apa, bukti apa" |
+| 3 | Izin hanya `sideEffects !== 'none' → confirm:true` | `server/capability-registry.mjs` | Tidak granular; tidak bisa ditunjukkan izin mana yang dievaluasi |
+| 4 | Event audit tanpa identitas/korelasi/percobaan | bentuk event lama | Attempt tidak dapat dibedakan dari event misi |
+| 5 | Penulisan audit best-effort tanpa kebijakan fail-closed | `appendAudit` lama | Kontrol keamanan bisa gagal diam-diam |
+
+### 15.2 Solusi yang diterapkan (tanpa membangun ulang Mission Engine)
+
+- **`server/execution-audit.mjs`** (baru): satu jejak append-only `capability-audit.jsonl` (0600) untuk **misi + kapabilitas**; skema seragam (19 jenis event); `append()` best-effort vs `appendCritical()` **fail-closed**; `idempotencyKey` anti-duplikasi; `redact()` (satu implementasi); `fileSummary()` (isi file pengguna tidak pernah ditulis penuh).
+- **`server/permissions.mjs`** (baru): 8 izin kanonik berbasis operasi nyata + `requiredPermissionsFor()` / `grantedPermissionsFor()` / `enforce()`; ditegakkan **di `capability-registry.run()`** (batas eksekusi, bukan hanya UI).
+- **Approval terikat tindakan** (`server/missions.mjs` + 4 endpoint): `capabilityId` + `operation` + `target` + `paramsDigest` + `status` + `expiresAt`, **sekali pakai** (`consumed`); approval rencana misi terikat `scope.digest`.
+- **UI**: Misi & Tugas → runner kapabilitas menampilkan "Setujui tindakan"/"Tolak" bila persetujuan khusus dibutuhkan.
+
+### 15.3 Hasil pengujian (perintah nyata, exit code nyata)
+
+| Perintah | Exit | Hasil |
+|---|---|---|
+| `npm run typecheck` | 0 | 0 error |
+| `npm run check:imports` (baru) | 0 | `IMPORT_OK` — 13 modul server dimuat **ESM native Node** |
+| `npm test` | 0 | **269 tes / 24 file, 269 lulus** (dari 252/23) |
+| `npm run build` | 0 | bundle JS 334,89 kB (gzip 98,38 kB) |
+| `npm run verify` | 0 | typecheck + check:imports + tes + build |
+| `npm run verify:ui` | 0 | responsif 16×6 **0 temuan** · kontras ter-render **0 temuan** |
+| `npm run smoke:provider` | 0 | 8 passed · 0 failed · 3 unverified |
+| `node scripts/smoke-desktop.mjs` (biner 0.6.3) | 0 | **51/51** |
+| `node scripts/verify-asar.mjs` (asar 0.6.3) | 0 | SEMUA PEMERIKSAAN LULUS, tanpa kunci API literal |
+| `node scripts/upgrade-check.cjs` (0.5.0 → 0.6.3) | 0 | LOLUS |
+
+### 15.4 Tes regresi baru — `tests/execution-audit.test.mjs` (17 tes)
+
+Menutup 14 skenario yang diminta: event misi lengkap & berurutan · alasan kegagalan aman · attempt retry dapat dibedakan (`execId` berbeda + `tool.retry_scheduled`) · kredensial tidak bocor (`[REDACTED]`) · permission ditolak di backend & tindakan tidak berjalan · approval tidak valid ditolak (409) · approval kedaluwarsa ditolak (403) · perubahan parameter material membatalkan approval (409) · **fail-closed**: approve gagal saat audit tak bisa ditulis → misi tidak dieksekusi · status store konsisten · cancellation bukan keberhasilan · verification failure ≠ `mission.completed` · anti-duplikasi event · kompatibilitas data lama (misi tanpa scope + event audit legasi tetap jalan).
+
+### 15.5 Bug nyata yang ditemukan fase ini
+
+| Bug | Gejala | Akar masalah | Perbaikan |
+|---|---|---|---|
+| **Aplikasi terpaket gagal start** | Smoke 2/6; "DevTools endpoint tidak muncul" | `redact` **terdeklarasi ganda** di `capability-registry.mjs` (fungsi lokal + re-export) → modul gagal dimuat ESM native; **vitest/esbuild mentoleransinya** sehingga 269 tes tetap hijau (hijau palsu) | Definisi lokal dihapus (satu implementasi di `execution-audit.mjs`) |
+| Celah hijau palsu belum tertutup | — | `npm test` tidak memuat modul server dengan ESM native | `scripts/check-server-imports.mjs` (baru) → ikut `npm run verify` |
+| Approval "consumed" tidak tersimpan | Persetujuan dipakai ulang → 200 | Status diubah di objek in-memory saja | `missions.consumeApproval()` + persist |
+
+### 15.6 Yang dipisahkan secara jujur
+
+- **Mock**: `smoke:provider` memakai mock lokal 127.0.0.1 untuk jalur error — **bukan** integrasi provider nyata.
+- **UNVERIFIED**: chat/vision/STT live (3 skenario) — butuh kredensial asli; tidak ada permintaan nyata yang dilakukan.
+- **UNVERIFIED**: runtime Linux & macOS; eksekusi CI GitHub.
+- **Real & terverifikasi di lingkungan ini**: seluruh event audit, gerbang izin, approval, fail-closed, kompatibilitas data lama, aplikasi terpaket (51/51), asar, dan upgrade 0.5.0 → 0.6.3.

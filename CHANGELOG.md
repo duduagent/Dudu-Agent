@@ -3,6 +3,38 @@
 Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Versi memakai SemVer.
 Status fitur memakai kosakata yang jujur: **Implemented** · **Tested** · **Partially implemented** · **Mock / simulation** · **Planned** · **Blocked**.
 
+## [0.6.3] — 2026-10-22 — RILIS
+
+> Cakupan: **Unified Execution Audit** + **Granular Permission Model** + **Approval terikat tindakan**. Tidak ada perubahan kontrak API yang merusak konsumen lama: endpoint & route baru bersifat aditif, dan **store misi tidak berubah format** (field baru opsional → tidak ada migrasi).
+> Rincian skema event, izin yang benar-benar ditegakkan, dan batas yang masih terbuka: [SECURITY_NOTES.md](SECURITY_NOTES.md).
+
+### Fixed
+- **Aplikasi terpaket gagal start** setelah penambahan audit: `redact` terdeklarasi ganda di `capability-registry.mjs` (fungsi lokal + re-export) → modul gagal dimuat oleh ESM native Node/Electron, sementara vitest/esbuild **mentoleransinya** sehingga tes tetap hijau. Fungsi lokal dihapus (satu implementasi di `server/execution-audit.mjs`).
+- **Celah hijau palsu ditutup**: `npm run check:imports` (baru, ikut `npm run verify`) memuat 13 modul server dengan **ESM native Node** — menangkap kesalahan linking yang tidak terlihat oleh vitest.
+
+### Added
+- **Unified Execution Audit** (`server/execution-audit.mjs`): satu jejak append-only (`capability-audit.jsonl`, mode 0600) untuk aktivitas **misi** dan eksekusi **kapabilitas**, dengan skema seragam: `eventId`, `at`/`ts`, `eventType`, `missionId`, `taskId`, `execId`, `capabilityId`, `actor`, `outcome`, `correlationId`, `idempotencyKey`, `detail` (disamarkan). 19 jenis event (`mission.created` … `permission.denied`). Field yang tidak diketahui bernilai `null`, tidak dikarang.
+- **Granular Permission Model** (`server/permissions.mjs`): 8 izin berbasis operasi nyata (`file:read`, `file:write`, `process:exec`, `network:out`, `credential:use`, `side-effect:external`, `plugin:exec`, `mcp:exec`) + `enforce()` yang dipakai **di batas eksekusi** (bukan hanya di UI). Izin jaringan/efek samping/credential hanya diberikan bila konfigurasi nyata ada **dan** konfirmasi eksplisit diberikan. Penolakan → `403 permission_denied` + event `permission.denied`, tindakan tidak dijalankan.
+- **Approval terikat tindakan**: `POST /api/missions/:id/approvals` (minta), `POST …/approvals/:id` (setuju/tolak), `GET …/approvals`. Approval memuat `capabilityId`, `operation`, `target`, `paramsDigest`, `status`, `expiresAt`, dan **dipakai sekali** (`consumed`). Persetujuan umum atas misi **bukan** izin tanpa batas. Approval rencana misi juga terikat digest rencana → perubahan material menuntut persetujuan baru.
+- **Fail-closed audit**: `mission.approved`, `mission.started`, dan `tool.execution_started` ditulis sebagai kontrol keamanan — bila audit tak bisa ditulis, **tindakan berisiko tidak dijalankan** (API menjawab `500 audit_unavailable`).
+- **Filter jejak audit** per misi / event type / correlation id: `GET /api/capability-registry/audit?missionId=…&eventType=…`.
+- **UI approval** di runner kapabilitas (Misi & Tugas): tombol "Jalankan" meminta persetujuan khusus bila belum ada, lalu "Setujui tindakan"/"Tolak" untuk memutuskan.
+- `tests/execution-audit.test.mjs` — **17 tes regresi** untuk 14 skenario yang diminta (event misi, alasan aman, attempt retry, redaksi kredensial, penolakan izin di backend, approval tidak valid/kedaluwarsa/scope berubah, fail-closed audit, konsistensi store, cancellation bukan keberhasilan, verification failure ≠ completed, anti-duplikasi, kompatibilitas data lama).
+
+### Changed
+- `server/missions.mjs` kini memancarkan event untuk seluruh siklus hidup (created → approval_requested → approved → started → task/tool → artifact → verification → completed/failed/needs_attention/cancelled) dan memvalidasi scope approval sebelum eksekusi.
+- `server/capability-registry.mjs` memakai audit terpadu + gerbang izin; **bentuk event lama** (`action`, `outcome`, `capabilityId`, `at`, `args`) tetap ditulis agar konsumen lama tidak rusak.
+- Versi paket → **0.6.3**.
+
+### Verified
+- `npm run verify` = **PASS** (typecheck 0 error · **269 tes / 24 file** · build produksi).
+- `npm run verify:ui` = LOLOS (responsif 16×6 + kontras ter-render, 0 temuan).
+- `npm run smoke:provider` = 8 passed · 0 failed · 3 unverified (butuh kredensial asli).
+- Smoke biner desktop 0.6.3: **51/51 lulus**.
+- Kompatibilitas data lama: misi tanpa `scope`/`approvals`/`correlationId` tetap disetujui & dijalankan; event audit legasi tetap terbaca.
+
+---
+
 ## [0.6.2] — 2026-10-22 — RILIS
 
 > Cakupan: **release readiness & execution reliability**. Tidak ada perubahan kontrak API, tidak ada fitur baru yang mengubah perilaku pengguna, dan tidak ada perubahan skema penyimpanan.

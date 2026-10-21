@@ -6,6 +6,8 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { isFileId } from './files.mjs'
 import { TABULAR_EXTS, ToolError, independentRowCount, loadTable, profileTable, recomputeNumericStats, renderReport } from './data-tools.mjs'
+import { buildEvent, createExecutionAudit, EVENT_TYPES, fileSummary } from './execution-audit.mjs'
+import { digestOf, PERMISSIONS } from './permissions.mjs'
 
 export class MissionError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code }
@@ -31,11 +33,21 @@ const CRITERIA = [
   { id: 'ac5', text: 'Setiap langkah tercatat dengan ID eksekusi dan stempel waktu.' },
 ]
 
-export function createMissionService({ dataDir, files, fs = fsp, now = () => Date.now(), uuid = () => crypto.randomUUID(), maxAutoRetries = 1 }) {
+export function createMissionService({ dataDir, files, fs = fsp, now = () => Date.now(), uuid = () => crypto.randomUUID(), maxAutoRetries = 1, audit: auditInjected = null }) {
   const dir = path.join(dataDir, 'missions')
   const artDir = (id) => path.join(dataDir, 'artifacts', id)
   const running = new Set()
   const cancelRequested = new Set()
+  // Unified Execution Audit: jejak append-only untuk aktivitas misi (juga ditulis registry).
+  const audit = auditInjected ?? createExecutionAudit({ dataDir, now, uuid })
+  const emit = (eventType, payload = {}) => audit.append({
+    ...buildEvent({ eventType, now, uuid, ...payload }),
+    action: eventType,
+  })
+  const emitCritical = (eventType, payload = {}) => audit.appendCritical({
+    ...buildEvent({ eventType, now, uuid, ...payload }),
+    action: eventType,
+  })
   class MissionCancelled extends Error {
     constructor() { super('Eksekusi misi dibatalkan oleh pengguna.'); this.code = 'cancelled' }
   }
@@ -52,6 +64,18 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
     await fs.rename(tmp, f)
   }
   const log = (m, level, msg) => m.log.push({ at: now(), level, msg })
+
+  /**
+   * Digest rencana misi. Approval terikat pada digest ini: bila rencana (langkah/alat/target)
+   * berubah secara material, approval lama tidak berlaku lagi.
+   */
+  function planDigest(m) {
+    return digestOf({
+      template: m.template,
+      fileId: m.fileId,
+      steps: (m.steps ?? []).map((s) => ({ id: s.id, tool: s.tool })),
+    })
+  }
 
   async function read(id) {
     try { const m = JSON.parse(await fs.readFile(file(id), 'utf8')); return m && m.id === id ? m : null } catch (e) { if (e instanceof MissionError) throw e; return null }
@@ -92,12 +116,22 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
       fileId, fileName: meta.name, state: 'draft', createdAt: t, updatedAt: t,
       policy: { requiresApproval: true, writeScope: 'artefak misi ini saja', network: false, destructive: false, maxAutoRetries },
       approval: { status: 'pending' },
+      approvals: [],
+      correlationId: uuid(),
       acceptance: CRITERIA.map((c) => ({ ...c, status: 'pending' })),
       steps: STEPS.map((s) => ({ ...s, status: 'pending', attempts: [] })),
       artifacts: [], failure: null, log: [],
     }
     log(m, 'info', 'Misi dibuat sebagai Draft; menunggu persetujuan pengguna sebelum dieksekusi.')
     await persist(m)
+    await emit(EVENT_TYPES.MISSION_CREATED, {
+      missionId: m.id, actor: 'user', outcome: 'succeeded', correlationId: m.correlationId,
+      detail: { template: m.template, file: fileSummary({ name: meta.name, size: meta.size, sha256: meta.sha256, mime: meta.mime }), criteria: m.acceptance.length },
+    })
+    await emit(EVENT_TYPES.MISSION_APPROVAL_REQUESTED, {
+      missionId: m.id, actor: 'user', outcome: 'requested', correlationId: m.correlationId,
+      detail: { scope: 'mission-plan', digest: planDigest(m) },
+    })
     return m
   }
 
@@ -154,14 +188,113 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
     return rec
   }
 
+  /* ---------- approval terikat tindakan ---------- */
+
+  /**
+   * Approval untuk SATU tindakan (mis. menjalankan kapabilitas tertentu dengan parameter
+   * tertentu). Terikat pada capability + operasi + target + digest parameter, punya masa
+   * berlaku, dan hanya bisa dipakai SATU KALI (consumed) — persetujuan umum atas misi
+   * bukan izin tanpa batas.
+   */
+  async function requestApproval(id, { capabilityId, operation = 'run', target = null, args = {}, actor = 'user', ttlMs = 15 * 60_000 } = {}) {
+    const m = await get(id)
+    if (!m) throw new MissionError(404, 'not_found', 'Misi tidak ditemukan.')
+    const cap = String(capabilityId ?? '').trim()
+    if (!cap || cap.length > 160) throw new MissionError(400, 'bad_capability', 'ID kapabilitas tidak valid.')
+    if (!Array.isArray(m.approvals)) m.approvals = []
+    const digest = digestOf({ capabilityId: cap, operation, target, args }) ?? null
+    const rec = {
+      id: uuid(), kind: 'capability', capabilityId: cap, operation, target: target ?? null, paramsDigest: digest,
+      status: 'pending', actor, createdAt: now(), expiresAt: now() + Math.max(1000, Number(ttlMs) || 0), decidedAt: null,
+    }
+    m.approvals.push(rec)
+    log(m, 'info', `Persetujuan tindakan diminta: ${cap} (${operation}).`)
+    await persist(m)
+    await emit(EVENT_TYPES.MISSION_APPROVAL_REQUESTED, {
+      missionId: m.id, capabilityId: cap, actor, outcome: 'requested', correlationId: m.correlationId,
+      detail: { approvalId: rec.id, operation, target: rec.target, paramsDigest: digest, expiresAt: rec.expiresAt },
+    })
+    return rec
+  }
+
+  async function decideApproval(id, approvalId, { decision = 'approved', actor = 'user', ttlMs = 15 * 60_000 } = {}) {
+    const m = await get(id)
+    if (!m) throw new MissionError(404, 'not_found', 'Misi tidak ditemukan.')
+    const rec = (m.approvals ?? []).find((a) => a.id === approvalId)
+    if (!rec) throw new MissionError(404, 'approval_not_found', 'Persetujuan tidak ditemukan.')
+    if (rec.status !== 'pending') throw new MissionError(409, 'approval_not_pending', `Persetujuan sudah berstatus ${rec.status}.`)
+    if (decision === 'rejected') {
+      rec.status = 'rejected'; rec.decidedAt = now(); rec.actor = actor
+      log(m, 'warn', `Persetujuan ditolak: ${rec.capabilityId}.`)
+      await persist(m)
+      await emit(EVENT_TYPES.MISSION_REJECTED, {
+        missionId: m.id, capabilityId: rec.capabilityId, actor, outcome: 'rejected', correlationId: m.correlationId,
+        detail: { approvalId: rec.id, operation: rec.operation },
+      })
+      return rec
+    }
+    rec.status = 'approved'; rec.decidedAt = now(); rec.actor = actor
+    rec.expiresAt = now() + Math.max(1000, Number(ttlMs) || 0)
+    log(m, 'info', `Persetujuan diberikan: ${rec.capabilityId} (${rec.operation}).`)
+    await persist(m)
+    await emitCritical(EVENT_TYPES.MISSION_APPROVED, {
+      missionId: m.id, capabilityId: rec.capabilityId, actor, outcome: 'succeeded', correlationId: m.correlationId,
+      detail: { approvalId: rec.id, operation: rec.operation, paramsDigest: rec.paramsDigest, expiresAt: rec.expiresAt },
+    })
+    return rec
+  }
+
+  /**
+   * Cari approval yang SAH untuk tindakan tertentu: disetujui, belum kedaluwarsa,
+   * dan digest parameter masih cocok. Mengembalikan { rec } atau { expired: true } / { mismatch: true }.
+   */
+  function findValidApproval(m, { capabilityId, operation = 'run', target = null, args = {} }) {
+    const digest = digestOf({ capabilityId, operation, target, args }) ?? null
+    const list = (m.approvals ?? []).filter((a) => a.capabilityId === capabilityId && a.operation === operation)
+    for (const rec of list) {
+      if (rec.status === 'approved' && rec.paramsDigest !== digest) return { rec, mismatch: true }
+    }
+    const usable = list.filter((a) => a.status === 'approved' && a.paramsDigest === digest)
+    const fresh = usable.find((a) => Number(a.expiresAt ?? 0) > now())
+    if (fresh) return { rec: fresh }
+    if (usable.length) return { rec: usable[0], expired: true }
+    return { rec: null }
+  }
+
+  async function listApprovals(id) {
+    const m = await get(id)
+    if (!m) throw new MissionError(404, 'not_found', 'Misi tidak ditemukan.')
+    return m.approvals ?? []
+  }
+
+  /** Tandai approval sudah dipakai (satu kali pakai) dan simpan ke store. */
+  async function consumeApproval(id, approvalId) {
+    const m = await get(id)
+    if (!m) throw new MissionError(404, 'not_found', 'Misi tidak ditemukan.')
+    const rec = (m.approvals ?? []).find((a) => a.id === approvalId)
+    if (!rec) return null
+    rec.status = 'consumed'; rec.decidedAt = now()
+    await persist(m)
+    return rec
+  }
+
   /* ---------- eksekusi ---------- */
 
-  async function approve(id) {
+  async function approve(id, { actor = 'user' } = {}) {
     const m = await get(id)
     if (!m) throw new MissionError(404, 'not_found', 'Misi tidak ditemukan.')
     if (m.state !== 'draft') throw new MissionError(409, 'bad_state', `Misi berstatus ${m.state}; hanya Draft yang dapat disetujui.`)
-    m.approval = { status: 'approved', at: now() }
+    // Approval terikat pada rencana: digest menggabungkan langkah, alat, dan file sumber.
+    const digest = planDigest(m)
+    m.approval = { status: 'approved', at: now(), scope: { kind: 'mission-plan', digest, expiresAt: null } }
+    m.actor = actor
     log(m, 'info', 'Pengguna menyetujui eksekusi.')
+    await persist(m)
+    // Event WAJIB: approval adalah kontrol keamanan → eksekusi tidak jalan bila audit gagal.
+    await emitCritical(EVENT_TYPES.MISSION_APPROVED, {
+      missionId: m.id, actor, outcome: 'succeeded', correlationId: m.correlationId,
+      detail: { scope: 'mission-plan', digest },
+    })
     return execute(m)
   }
 
@@ -185,16 +318,32 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
     if (cancelRequested.has(id)) throw new MissionError(409, 'already_cancelling', 'Pembatalan sudah diminta.')
     cancelRequested.add(id)
     log(m, 'warn', 'Permintaan pembatalan diterima; eksekusi berhenti di antara langkah.')
+    await emit(EVENT_TYPES.MISSION_CANCEL_REQUESTED, {
+      missionId: m.id, actor: 'user', outcome: 'requested', correlationId: m.correlationId,
+      detail: { state: m.state },
+    })
     await persist(m).catch(() => {})
     return m
   }
 
   async function execute(m) {
     if (running.has(m.id)) throw new MissionError(409, 'running', 'Misi sudah berjalan.')
+    // Approval WAJIB berlaku dan masih mencakup rencana saat ini (scope terikat).
+    // Misi lama (v0.5.0/v0.6.2) tidak punya scope → approval lamanya tetap dihormati.
+    if (m.approval?.status !== 'approved') throw new MissionError(409, 'approval_required', 'Misi belum disetujui.')
+    const scope = m.approval?.scope
+    if (scope?.digest && scope.digest !== planDigest(m)) {
+      throw new MissionError(409, 'approval_scope_mismatch', 'Rencana misi berubah setelah persetujuan; persetujuan ulang diperlukan.')
+    }
     running.add(m.id)
     cancelRequested.delete(m.id)
     const ctx = {}
     try {
+      // Event WAJIB: eksekusi tidak boleh berjalan bila audit tidak bisa dicatat.
+      await emitCritical(EVENT_TYPES.MISSION_STARTED, {
+        missionId: m.id, actor: m.actor ?? 'user', outcome: 'requested', correlationId: m.correlationId,
+        detail: { template: m.template, steps: m.steps.length },
+      })
       m.state = 'queued'; m.failure = null; await persist(m)
       m.state = 'running'; log(m, 'info', 'Eksekusi dimulai.'); await persist(m)
       const handlers = {
@@ -209,10 +358,18 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
         await runStep(m, step, handlers[step.id])
       }
       m.state = 'completed'; log(m, 'info', 'Semua langkah selesai dan seluruh kriteria penerimaan lulus.')
+      await emit(EVENT_TYPES.MISSION_COMPLETED, {
+        missionId: m.id, actor: m.actor ?? 'user', outcome: 'succeeded', correlationId: m.correlationId,
+        detail: { steps: m.steps.length, artifacts: m.artifacts.length, criteriaPassed: m.acceptance.filter((c) => c.status === 'passed').length },
+      })
     } catch (e) {
       if (e instanceof MissionCancelled || e?.code === 'cancelled') {
         m.state = 'cancelled'; m.failure = null
         log(m, 'info', 'Eksekusi dibatalkan oleh pengguna sebelum langkah berikutnya selesai.')
+        await emit(EVENT_TYPES.MISSION_CANCELLED, {
+          missionId: m.id, actor: m.actor ?? 'user', outcome: 'cancelled', correlationId: m.correlationId,
+          detail: { reason: 'dibatalkan_pengguna' },
+        })
       } else {
         const cls = e?.class || 'tool_error'
         const msg = String(e?.message || e).slice(0, 400)
@@ -224,6 +381,11 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
           m.state = 'needs_attention'; m.failure = { class: 'tool_error', message: msg, retryable: true }
         }
         log(m, 'error', `Misi berhenti: [${m.failure.class}] ${msg}`)
+        // Status TERMINAL dicatat apa adanya: failed / needs_attention — BUKAN completed.
+        await emit(m.state === 'failed' ? EVENT_TYPES.MISSION_FAILED : EVENT_TYPES.MISSION_NEEDS_ATTENTION, {
+          missionId: m.id, actor: m.actor ?? 'user', outcome: 'failed', correlationId: m.correlationId,
+          detail: { class: m.failure.class, error: msg, retryable: m.failure.retryable },
+        })
       }
     } finally {
       running.delete(m.id)
@@ -237,16 +399,44 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
     for (let attempt = 1; attempt <= 1 + maxAutoRetries; attempt++) {
       const rec = { execId: uuid(), startedAt: now(), attempt }
       step.attempts.push(rec); step.status = 'running'; await persist(m)
+      // Event WAJIB sebelum langkah dijalankan: bila audit tak bisa ditulis, langkah TIDAK dijalankan.
+      await emitCritical(EVENT_TYPES.TOOL_EXECUTION_STARTED, {
+        missionId: m.id, taskId: step.id, execId: rec.execId, actor: m.actor ?? 'user',
+        outcome: 'requested', correlationId: m.correlationId,
+        detail: { tool: step.tool, attempt, required: [PERMISSIONS.FILE_READ] },
+      })
+      await emit(EVENT_TYPES.TASK_STARTED, {
+        missionId: m.id, taskId: step.id, execId: rec.execId, actor: m.actor ?? 'user',
+        outcome: 'requested', correlationId: m.correlationId, detail: { tool: step.tool, attempt },
+      })
       try {
         step.output = await fn()
         rec.finishedAt = now(); rec.ok = true; step.status = 'done'
         log(m, 'info', `${step.tool} selesai (exec ${rec.execId.slice(0, 8)}).`); await persist(m)
+        await emit(EVENT_TYPES.TOOL_EXECUTION_SUCCEEDED, {
+          missionId: m.id, taskId: step.id, execId: rec.execId, actor: m.actor ?? 'user',
+          outcome: 'succeeded', correlationId: m.correlationId,
+          detail: { tool: step.tool, attempt, durationMs: rec.finishedAt - rec.startedAt },
+        })
         return
       } catch (e) {
         rec.finishedAt = now(); rec.ok = false; rec.error = String(e?.message || e).slice(0, 300); rec.class = e?.class || 'tool_error'
         step.status = 'failed'
+        await emit(EVENT_TYPES.TOOL_EXECUTION_FAILED, {
+          missionId: m.id, taskId: step.id, execId: rec.execId, actor: m.actor ?? 'user',
+          outcome: 'failed', correlationId: m.correlationId,
+          detail: { tool: step.tool, attempt, class: rec.class, error: rec.error },
+        })
         // Retry otomatis HANYA untuk kegagalan tool sementara, dan dibatasi maxAutoRetries.
-        if (rec.class === 'tool_error' && attempt <= maxAutoRetries) { log(m, 'warn', `${step.tool} gagal (${rec.error}); mencoba ulang otomatis (${attempt}/${maxAutoRetries}).`); continue }
+        if (rec.class === 'tool_error' && attempt <= maxAutoRetries) {
+          log(m, 'warn', `${step.tool} gagal (${rec.error}); mencoba ulang otomatis (${attempt}/${maxAutoRetries}).`)
+          await emit(EVENT_TYPES.TOOL_RETRY_SCHEDULED, {
+            missionId: m.id, taskId: step.id, execId: rec.execId, actor: 'system',
+            outcome: 'requested', correlationId: m.correlationId,
+            detail: { tool: step.tool, attempt, nextAttempt: attempt + 1, maxAutoRetries },
+          })
+          continue
+        }
         throw e
       }
     }
@@ -287,6 +477,11 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
         const buf = Buffer.from(content, 'utf8')
         await fs.writeFile(path.join(artDir(m.id), name), buf)
         out.push({ name, size: buf.length, sha256: sha(buf), mime })
+        await emit(EVENT_TYPES.ARTIFACT_CREATED, {
+          missionId: m.id, taskId: 's4', execId: m.steps.find((s) => s.id === 's4')?.attempts?.at(-1)?.execId ?? null,
+          actor: m.actor ?? 'user', outcome: 'succeeded', correlationId: m.correlationId,
+          detail: { artifact: fileSummary({ name, size: buf.length, sha256: sha(buf), mime }) },
+        })
       }
       m.artifacts = out
     } catch (e) { throw new ToolError('tool_error', `Gagal menulis artefak: ${e.message}`) }
@@ -343,9 +538,15 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
 
     for (const r of results) { const c = m.acceptance.find((x) => x.id === r.id); c.status = r.ok ? 'passed' : 'failed'; c.evidence = r.evidence; c.checkedAt = now() }
     const failed = results.filter((r) => !r.ok)
+    // Event verifikasi: lulus/gagal — BUKAN "mission completed".
+    await emit(failed.length ? EVENT_TYPES.VERIFICATION_FAILED : EVENT_TYPES.VERIFICATION_PASSED, {
+      missionId: m.id, taskId: 's5', execId: m.steps.find((s) => s.id === 's5')?.attempts?.at(-1)?.execId ?? null,
+      actor: 'system', outcome: failed.length ? 'failed' : 'succeeded', correlationId: m.correlationId,
+      detail: { passed: results.length - failed.length, failed: failed.map((f) => f.id), criteria: results.map((r) => ({ id: r.id, ok: r.ok, evidence: r.evidence })) },
+    })
     if (failed.length) throw new ToolError('verification_failed', `Kriteria gagal: ${failed.map((f) => f.id).join(', ')}. ${failed.map((f) => f.evidence).join(' | ')}`)
     return { passed: results.length }
   }
 
-  return { create, list, get, remove, approve, retry, cancel, artifactPath, evidencePath, attachEvidence }
+  return { create, list, get, remove, approve, retry, cancel, artifactPath, evidencePath, attachEvidence, requestApproval, decideApproval, findValidApproval, listApprovals, consumeApproval, planDigest }
 }

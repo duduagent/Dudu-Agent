@@ -18,7 +18,8 @@ const releaseDir = path.join(root, 'release')
 const sha = (f) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex').toUpperCase()
 
 const DOCS = ['README.md', 'PACKAGING.md', 'TEST_REPORT.md', 'CHANGELOG.md', 'ROADMAP_V0.6.0.md',
-  'CAPABILITY_INVENTORY.md', 'CAPABILITY_COMPATIBILITY_MATRIX.md', 'CAPABILITY_ARCHITECTURE.md', 'CAPABILITY_SECURITY.md', 'CAPABILITY_ROADMAP.md']
+  'CAPABILITY_INVENTORY.md', 'CAPABILITY_COMPATIBILITY_MATRIX.md', 'CAPABILITY_ARCHITECTURE.md', 'CAPABILITY_SECURITY.md', 'CAPABILITY_ROADMAP.md',
+  'SECURITY_NOTES.md', 'READINESS_AUDIT.md']
 
 /**
  * Aturan pencocokan artefak per platform. Regex dibangun dari `version` saat ini supaya

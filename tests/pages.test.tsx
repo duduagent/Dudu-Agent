@@ -250,6 +250,11 @@ describe('Bukti kapabilitas di UI', () => {
     const H = { 'x-dudu-client': '1', 'content-type': 'application/json' }
     const created = await be.api.handle({ method: 'POST', path: '/api/missions', headers: H, contentType: 'application/json', body: JSON.stringify({ goal: 'Analisis penjualan dengan bukti kapabilitas', fileId: file.id }) })
     const missionId = (((created.body) as { mission: { id: string } }).mission).id
+    // v0.6.3: run kapabilitas dalam misi butuh persetujuan terikat tindakan.
+    const req = await be.api.handle({ method: 'POST', path: `/api/missions/${missionId}/approvals`, headers: H, contentType: 'application/json', body: JSON.stringify({ capabilityId: 'dudu.mcp.tool.kb_stats', operation: 'run', args: {} }) })
+    expect(req.status).toBe(201)
+    const approvalId = ((req.body) as { approval: { id: string } }).approval.id
+    await be.api.handle({ method: 'POST', path: `/api/missions/${missionId}/approvals/${approvalId}`, headers: H, contentType: 'application/json', body: JSON.stringify({ decision: 'approved' }) })
     const run = await be.api.handle({ method: 'POST', path: `/api/missions/${missionId}/capabilities/${encodeURIComponent('dudu.mcp.tool.kb_stats')}/run`, headers: H, contentType: 'application/json', body: JSON.stringify({ args: {} }) })
     expect(run.status).toBe(200)
     await open(/misi & tugas/i, /^misi & tugas$/i)
@@ -270,7 +275,10 @@ describe('Bukti kapabilitas di UI', () => {
     const section = await screen.findByRole('region', { name: /kapabilitas yang bisa dijalankan/i })
     const card = within(section).getByText('kb_stats', { selector: 'strong' }).closest('.card') as HTMLElement
     await userEvent.setup().click(within(card).getByRole('button', { name: /^jalankan$/i }))
-    expect(await within(card).findByText(/berhasil dalam \d+ ms — bukti dilampirkan:/i)).toBeInTheDocument()
+    // v0.6.3: tindakan dalam misi butuh persetujuan terikat → UI menawarkan permintaan persetujuan.
+    const approveBtn = await within(card).findByRole('button', { name: /setujui tindakan/i }, { timeout: 8000 })
+    await userEvent.setup().click(approveBtn)
+    expect(await within(card).findByText(/berhasil dalam \d+ ms [\u2014-] bukti dilampirkan:/i)).toBeInTheDocument()
     // Bukti kini terlihat di panel bukti, dan misi tetap Draft (kkapabilitas tidak boleh otomatis menuntaskan misi)
     expect(await screen.findByRole('heading', { level: 3, name: /bukti kapabilitas/i })).toBeInTheDocument()
     expect(screen.getByTestId('mission-state')).toHaveTextContent('Draft')

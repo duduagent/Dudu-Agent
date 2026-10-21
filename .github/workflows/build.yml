@@ -23,6 +23,10 @@ jobs:
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
       - run: npm run verify
+      # Modul server HARUS dapat dimuat ESM native Node (bukan transformasi vitest) —
+      # menangkap kesalahan linking yang tidak terlihat oleh tes (mis. export ganda).
+      - name: Impor modul server (ESM native)
+        run: npm run check:imports
       # Uji jalur error provider TANPA kredensial: skenario live menjadi UNVERIFIED (bukan PASSED)
       # dan tidak membuat pipeline gagal. Tidak ada secret yang dipakai di sini.
       - name: Uji kesiapan provider (tanpa kredensial)

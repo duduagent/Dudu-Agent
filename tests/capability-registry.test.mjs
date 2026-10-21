@@ -190,6 +190,19 @@ describe('Integrasi misi: bukti kapabilitas dilampirkan tanpa merusak acceptance
     expect(created.status).toBe(201)
     const missionId = created.body.mission.id
     const capId = encodeURIComponent('dudu.mcp.tool.kb_stats')
+    // v0.6.3: run kapabilitas di dalam misi WAJIB punya persetujuan yang terikat tindakan.
+    const noApproval = await api.handle(H_JSON('POST', `/api/missions/${missionId}/capabilities/${capId}/run`, { args: {} }))
+    expect(noApproval.status).toBe(409)
+    expect(noApproval.body.error).toBe('approval_required')
+
+    const req = await api.handle(H_JSON('POST', `/api/missions/${missionId}/approvals`, { capabilityId: 'dudu.mcp.tool.kb_stats', operation: 'run', args: {} }))
+    expect(req.status).toBe(201)
+    expect(req.body.approval.status).toBe('pending')
+
+    const decided = await api.handle(H_JSON('POST', `/api/missions/${missionId}/approvals/${req.body.approval.id}`, { decision: 'approved' }))
+    expect(decided.status).toBe(200)
+    expect(decided.body.approval.status).toBe('approved')
+
     const run = await api.handle(H_JSON('POST', `/api/missions/${missionId}/capabilities/${capId}/run`, { args: {} }))
     expect(run.status).toBe(200)
     expect(run.body.run.ok).toBe(true)
@@ -198,6 +211,11 @@ describe('Integrasi misi: bukti kapabilitas dilampirkan tanpa merusak acceptance
     expect(run.body.mission.log.some((l) => l.msg.includes('Bukti kapabilitas'))).toBe(true)
     expect(run.body.mission.acceptance.every((a) => a.status === 'pending')).toBe(true)
     expect(run.body.mission.artifacts).toHaveLength(0)
+
+    // Persetujuan dipakai sekali → tindakan berikutnya perlu persetujuan baru.
+    const again = await api.handle(H_JSON('POST', `/api/missions/${missionId}/capabilities/${capId}/run`, { args: {} }))
+    expect(again.status).toBe(409)
+    expect(again.body.error).toBe('approval_required')
 
     const dl = await api.handle({ method: 'GET', path: `/api/missions/${missionId}/evidence/${encodeURIComponent(run.body.evidence.name)}` })
     expect(dl.status).toBe(200)

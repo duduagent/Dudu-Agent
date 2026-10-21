@@ -13,6 +13,11 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { buildEvent, createExecutionAudit, EVENT_TYPES, redact } from './execution-audit.mjs'
+import { enforce, grantedPermissionsFor, requiredPermissionsFor } from './permissions.mjs'
+
+// Re-export untuk kompatibilitas: redact kini hidup di modul audit terpadu.
+export { redact }
 
 export class CapabilityError extends Error {
   constructor(status, code, message) {
@@ -58,26 +63,9 @@ function truncate(value, max = 400) {
   return s.length > max ? `${s.slice(0, max)}…` : s
 }
 
-/** Argumen/rahasia tidak boleh masuk audit/log. Kunci sensitif disamarkan, nilai panjang dipotong. */
-export function redact(value, depth = 0) {
-  if (depth > 6) return '[kedalaman dibatasi]'
-  if (value == null) return value
-  if (typeof value === 'string') {
-    return value
-      .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
-      .slice(0, 2000)
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') return value
-  if (Array.isArray(value)) return value.slice(0, 50).map((v) => redact(v, depth + 1))
-  if (typeof value === 'object') {
-    const out = {}
-    for (const [k, v] of Object.entries(value).slice(0, 50)) {
-      out[k] = /secret|token|password|passwd|api[_-]?key|authorization|cookie/i.test(k) ? '[REDACTED]' : redact(v, depth + 1)
-    }
-    return out
-  }
-  return String(value).slice(0, 200)
-}
+// Catatan: `redact` kini hidup di server/execution-audit.mjs (satu implementasi untuk audit
+// terpadu). Fungsi lokal dihapus — deklarasi ganda membuat modul gagal dimuat di Node/Electron
+// (vitest/esbuild menoleransinya → hasil hijau palsu).
 
 function safeResult(value) {
   let text
@@ -522,8 +510,7 @@ const EXTERNAL_REFERENCES = [
 
 /* ------------------------------------------------------------------ */
 
-export function createCapabilityRegistry({ dataDir, skills, plugins, connectors, mcpClient, mcpTools = [], caps = {}, runTimeoutMs = 30_000, now = () => Date.now() }) {
-  const auditPath = path.join(dataDir, AUDIT_FILE)
+export function createCapabilityRegistry({ dataDir, skills, plugins, connectors, mcpClient, mcpTools = [], caps = {}, runTimeoutMs = 30_000, now = () => Date.now(), audit: auditInjected = null }) {
   const statePath = path.join(dataDir, STATE_FILE)
   let state = null
   let writeChain = Promise.resolve()
@@ -546,10 +533,9 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
     return writeChain
   }
 
-  async function appendAudit(event) {
-    await fs.mkdir(dataDir, { recursive: true })
-    await fs.appendFile(auditPath, `${JSON.stringify(event)}\n`, { mode: 0o600 })
-  }
+  // Audit terpadu: satu jejak append-only untuk aktivitas misi DAN eksekusi kapabilitas.
+  // (appendAudit lama dihapus agar hanya ada SATU penulis berkas audit.)
+  const audit = auditInjected ?? createExecutionAudit({ dataDir, now })
 
   function runtimeOf(id) {
     return state?.items?.[id] ?? null
@@ -881,7 +867,7 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
 
   /* ---------------- validasi ---------------- */
 
-  async function validate(id) {
+  async function validate(id, { actor = 'local' } = {}) {
     const entry = await get(id)
     const at = now()
     const checks = []
@@ -967,7 +953,7 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
     return finishValidation(entry, at, { verdict, checks, error })
   }
 
-  async function finishValidation(entry, at, { verdict, checks, error }) {
+  async function finishValidation(entry, at, { verdict, checks, error, actor = 'local' }) {
     await loadState()
     const prev = state.items[entry.id] ?? {}
     state.items[entry.id] = {
@@ -975,7 +961,14 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
       lastValidation: { at, verdict, checks: checks.map((c) => ({ id: c.id, ok: c.ok, detail: truncate(c.detail, 300) })), error: error ?? null },
     }
     await persistState()
-    await appendAudit({ at: nowIso(at), capabilityId: entry.id, action: 'validate', outcome: verdict, error: error ?? null, checks: checks.length })
+    // Event unified + field legacy (action/outcome) agar konsumen lama tetap membaca.
+    await audit.append({
+      ...buildEvent({ eventType: EVENT_TYPES.CAPABILITY_VALIDATED, capabilityId: entry.id, actor, outcome: verdict, now: () => now(), uuid: () => crypto.randomUUID(), detail: { checks: checks.length, error: error ?? null } }),
+      at: nowIso(at),
+      action: 'validate',
+      error: error ?? null,
+      checks: checks.length,
+    })
     return {
       capability: await get(entry.id),
       ok: verdict === 'passed',
@@ -988,7 +981,7 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
 
   /* ---------------- eksekusi ---------------- */
 
-  async function run(id, { args = {}, confirm = false, actor = 'local' } = {}) {
+  async function run(id, { args = {}, confirm = false, actor = 'local', missionId = null, correlationId = null, taskId = null } = {}) {
     const entry = await get(id)
     if (entry.sourceType === 'external-reference') throw new CapabilityError(409, 'reference_only', 'Referensi eksternal tidak dapat dijalankan. Tidak ada kode pihak ketiga yang dijalankan Dudu.')
     if (!entry.runnable) throw new CapabilityError(409, 'not_runnable', 'Kapabilitas ini tidak dapat dijalankan langsung (hanya instruksi/internal/konfigurasi).')
@@ -997,7 +990,35 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
     if (argsText.length > MAX_ARGS_CHARS) throw new CapabilityError(400, 'args_too_large', `Argumen maksimum ${MAX_ARGS_CHARS} karakter.`)
     if (entry.sideEffects !== 'none' && confirm !== true) throw new CapabilityError(409, 'confirmation_required', `Operasi ini berefek samping (${entry.sideEffects}); kirim confirm:true untuk menyetujui.`)
 
+    // ---- Pemeriksaan izin di batas eksekusi (bukan hanya di UI) ----
+    const required = requiredPermissionsFor(entry)
+    const granted = grantedPermissionsFor(entry, { confirm })
+    try {
+      enforce({ required, granted, capabilityId: entry.id, action: 'run' })
+    } catch (e) {
+      await audit.append({
+        ...buildEvent({
+          eventType: EVENT_TYPES.PERMISSION_DENIED, capabilityId: entry.id, missionId, taskId, actor,
+          outcome: 'denied', correlationId, now: () => now(), uuid: () => crypto.randomUUID(),
+          detail: { missing: e?.detail?.missing ?? [], required, action: 'run' },
+        }),
+        at: nowIso(now()), action: 'run', outcome: 'denied',
+      })
+      throw e
+    }
+
     const started = now()
+    const execId = crypto.randomUUID()
+    // ---- Event WAJIB sebelum tindakan berisiko: gagal-tutup bila audit tak bisa ditulis ----
+    await audit.appendCritical({
+      ...buildEvent({
+        eventType: EVENT_TYPES.TOOL_EXECUTION_STARTED, capabilityId: entry.id, missionId, taskId, execId, actor,
+        outcome: 'requested', correlationId, now: () => now(), uuid: () => crypto.randomUUID(),
+        detail: { sideEffects: entry.sideEffects, required, granted: [...granted], args: redact(args) },
+      }),
+      at: nowIso(started), action: 'run', outcome: 'requested', execId, durationMs: 0, sideEffects: entry.sideEffects, confirm: Boolean(confirm), args: redact(args),
+    })
+
     let ok = false
     let result = null
     let error = null
@@ -1042,7 +1063,14 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
       },
     }
     await persistState()
-    await appendAudit({
+    // Event unified + field legacy agar konsumen lama (UI & tes) tetap membaca.
+    await audit.append({
+      ...buildEvent({
+        eventType: ok ? EVENT_TYPES.TOOL_EXECUTION_SUCCEEDED : EVENT_TYPES.TOOL_EXECUTION_FAILED,
+        capabilityId: entry.id, missionId, taskId, execId, actor, outcome: ok ? 'succeeded' : 'failed',
+        correlationId, now: () => now(), uuid: () => crypto.randomUUID(),
+        detail: { durationMs: at - started, sideEffects: entry.sideEffects, confirm: Boolean(confirm), args: redact(args), error: error ?? null },
+      }),
       at: nowIso(at),
       capabilityId: entry.id,
       action: 'run',
@@ -1064,19 +1092,11 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
     }
   }
 
-  async function audit(limit = 50) {
-    const n = Math.min(Math.max(Number(limit) || 50, 1), 500)
-    const text = await fs.readFile(auditPath, 'utf8').catch(() => '')
-    const lines = text.split(/\r?\n/).filter(Boolean).slice(-n)
-    const events = []
-    for (const line of lines) {
-      const e = safeJson(line, null)
-      if (e) events.push(e)
-    }
-    return { events, count: events.length, file: AUDIT_FILE }
+  async function auditTrail({ limit = 50, missionId = null, eventType = null, correlationId = null } = {}) {
+    return audit.read({ limit, missionId, eventType, correlationId })
   }
 
-  return { list, get, validate, run, audit, sourceLabels: SOURCE_LABELS, categoryLabels: CATEGORY_LABELS, externalReferences: EXTERNAL_REFERENCES }
+  return { list, get, validate, run, audit: auditTrail, sourceLabels: SOURCE_LABELS, categoryLabels: CATEGORY_LABELS, externalReferences: EXTERNAL_REFERENCES }
 }
 
 function withTimeout(promise, ms, message) {

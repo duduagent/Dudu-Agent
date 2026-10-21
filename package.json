@@ -3,7 +3,7 @@
   "productName": "Dudu AI",
   "description": "Dudu AI — asisten AI pribadi (aplikasi desktop dan web)",
   "private": true,
-  "version": "0.6.2",
+  "version": "0.6.3",
   "type": "module",
   "main": "electron/main.mjs",
   "bin": {
@@ -26,7 +26,8 @@
     "desktop": "npm run build && electron .",
     "desktop:dev": "node scripts/desktop-dev.mjs",
     "icon": "electron scripts/render-icon.cjs",
-    "verify": "npm run typecheck && npm test && npm run build",
+    "verify": "npm run typecheck && npm run check:imports && npm test && npm run build",
+    "check:imports": "node scripts/check-server-imports.mjs",
     "verify:ui": "node scripts/verify-ui.mjs",
     "smoke:provider": "node scripts/provider-smoke.mjs",
     "package:release": "node scripts/package-release.mjs",
