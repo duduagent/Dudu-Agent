@@ -58,10 +58,9 @@ async function main() {
   if (!await waitHttp(`http://127.0.0.1:${API_PORT}/api/health`)) { console.error('API server tidak siap'); process.exit(2) }
 
   console.log('2/4 menyalakan dev server (vite)…')
-  const viteBin = process.platform === 'win32'
-    ? path.join(root, 'node_modules', '.bin', 'vite.cmd')
-    : path.join(root, 'node_modules', '.bin', 'vite')
-  const vite = spawn(viteBin, ['--port', String(WEB_PORT), '--strictPort'], {
+  // Jalankan vite lewat entry JS-nya (bukan .cmd) → tidak butuh shell, aman di semua platform.
+  const viteBin = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js')
+  const vite = spawn(process.execPath, [viteBin, '--port', String(WEB_PORT), '--strictPort'], {
     cwd: root, env: { ...process.env }, stdio: 'ignore', detached: process.platform !== 'win32',
   })
   children.push(vite)
