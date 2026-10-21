@@ -285,7 +285,7 @@ export const api = {
     return r.missions as Mission[]
   },
   createMission: async (goal: string, fileId: string) => (await apiJson<{ mission: Mission }>('POST', '/api/missions', { goal, fileId })).mission,
-  getMission: async (id: string) => (await apiJson<{ mission: Mission }>('GET', `/api/missions/${id}`)).mission,
+  getMission: async (id: string, signal?: AbortSignal) => (await apiJson<{ mission: Mission }>('GET', `/api/missions/${id}`, undefined, signal)).mission,
   approveMission: async (id: string) => (await apiJson<{ mission: Mission }>('POST', `/api/missions/${id}/approve`)).mission,
   retryMission: async (id: string) => (await apiJson<{ mission: Mission }>('POST', `/api/missions/${id}/retry`)).mission,
   cancelMission: async (id: string) => (await apiJson<{ mission: Mission }>('POST', `/api/missions/${id}/cancel`)).mission,

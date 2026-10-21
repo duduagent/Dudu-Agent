@@ -1,6 +1,6 @@
 # Laporan Audit, Implementasi & Verifikasi — Dudu AI
 
-> **Status terbaru — 21 Oktober 2026, rilis v0.6.1: PASS.** `npm run verify` lulus: typecheck 0 error, **236 tes / 21 file**, build produksi. Audit responsif **0 temuan overflow** di 96 kombinasi (16 rute × 6 lebar) · audit kontras ter-render **0 temuan** di 16 rute · smoke biner desktop **51/51** · kompatibilitas upgrade 0.5.0 → 0.6.1 **LOLUS** (data pengguna utuh, uninstall aman). Rilis v0.6.1 menambah **Pusat Eksekusi** (timeline eksekusi hidup + pusat "butuh perhatian") dan hardening kontras/warna (§13). Rincian: [PACKAGING.md](PACKAGING.md), [UI_DESIGN_SYSTEM.md](UI_DESIGN_SYSTEM.md), [ROADMAP_V0.6.0.md](ROADMAP_V0.6.0.md), [CHANGELOG.md](CHANGELOG.md). Hash: `release/SHA256SUMS-0.6.1.txt`.
+> **Status terbaru — 22 Oktober 2026, rilis v0.6.2: PASS.** `npm run verify` lulus: typecheck 0 error, **251 tes / 23 file**, build produksi. `npm run verify:ui` (baru) LOLOS: audit responsif 16 rute × 6 lebar **0 temuan** + audit kontras ter-render **0 temuan**. `npm run smoke:provider` (baru): 7 lolos · 3 belum terverifikasi (butuh kredensial asli) · 0 gagal. Smoke biner desktop **51/51**; kompatibilitas upgrade **LOLUS**. Repositori Git diinisialisasi (branch `main`, 1 commit, 128 file; backup penuh 3,7 GB dibuat lebih dulu; tanpa tag/remote/push). Rincian: [TEST_REPORT.md](TEST_REPORT.md) §14, [PACKAGING.md](PACKAGING.md), [CHANGELOG.md](CHANGELOG.md).
 >
 > Status v0.6.0 (21 Oktober 2026): PASS — 233 tes/20 file, smoke 51/51, Windows + tarball Linux + paket sumber. Increment 0.6.0 menambah: pembatalan kooperatif misi (`cancelled`), jembatan Chat → Misi, panel bukti kapabilitas, menjalankan kapabilitas dari konteks misi, dan perkakas pengemasan rilis (§11).
 >
@@ -164,6 +164,55 @@ Isi smoke (51 pemeriksaan) mencakup alur misi nyata di app terpaket (Draft → p
 Skrip `scripts/package-release.mjs` (baru) membuat ZIP + hash per platform dan **menolak mengarang artefak**: yang tidak ada dilaporkan "TIDAK DIBANGUN" dan tidak masuk ZIP/daftar hash (kode keluar 5). Aturan pencocokannya terikat versi — regresi nyata (paket 0.6.0 sempat memuat installer 0.3.0) kini ditutup oleh `tests/packaging.test.mjs` (4 tes).
 
 Hash lengkap (7 artefak: 2 exe Windows, 2 ZIP Windows, tarball + ZIP Linux, ZIP sumber) ada di **`release/SHA256SUMS-0.6.0.txt`**; hash per platform ada di `SHA256SUMS-0.6.0-{Windows,Linux,source}.txt` (juga disertakan di dalam masing-masing ZIP). Hash sengaja **tidak** disalin ke dalam dokumen di sini: nilai hash ZIP berubah setiap kali ZIP dibuat ulang, sehingga menyalinnya ke dalam dokumen pasti menimbulkan ketidaksesuaian.
+
+## 14. v0.6.2 — Release readiness & execution reliability
+
+### 14.1 Repositori Git (Phase 1)
+| Item | Hasil |
+|---|---|
+| Root aplikasi | `C:\Users\LENOVO\Documents\Default Project` (React/Vite + Electron + `server/*.mjs`) |
+| Backup sebelum mengubah metadata repo | **Dibuat & diverifikasi**: `C:\Users\LENOVO\Documents\dudu-backup-2026-10-21` (3.732 GB, 307+ berkas, `release/` ikut) |
+| Inisialisasi | `git init -b main` → branch `main`, identitas **repo-lokal** (`Dudu AI <dev@dudu-ai.local>`); identitas global tidak diubah (sebelumnya kosong) |
+| Commit | 1 commit awal, **128 file** ter-track, working tree bersih |
+| Tag / remote / push | **Tidak ada** (diminta: jangan buat tag/push otomatis). *Remote belum dikonfigurasi — URL repository perlu ditetapkan pemilik.* |
+| Pengecualian | `release/` (3,7 GB artefak), `node_modules/`, `dist/`, `ui-audit*/`, `ui-contrast/`, `.env*` (kecuali `.env.example`), `dudu.env`, `*.pem/key/pfx/p12/crt/cer`, `*.log` |
+| Scan rahasia | 113 file sumber dipindai (8 pola) → **0 rahasia**; temuan satu-satunya false positive (URL endpoint OAuth & fixture tes). Data pengguna berada di `%APPDATA%\Dudu AI` → di luar repo |
+| `.gitattributes` | Ditambahkan (LF di repo untuk build Linux/macOS; biner ditandai `binary`) |
+
+### 14.2 Polling adaptif (Phase 3)
+| Prinsip | Implementasi | Bukti |
+|---|---|---|
+| Satu siklus hidup per tampilan | Satu `useEffect` per `selectedId`; timer & listener dibersihkan saat unmount | `execution-polling.test.tsx` |
+| Cegah request bertumpuk | Penjaga `inFlight` (permintaan kedua dilewati) | Tes: `maxInFlight === 1` |
+| Batalkan request usang | `AbortController` per permintaan + `abort()` saat unmount | Tes: `aborted === true` |
+| Jangan agresif saat tab tersembunyi | `document.hidden` → tick ditunda; `visibilitychange`/`focus` → lanjut **segera** | Tes: jumlah panggilan tidak bertambah saat tersembunyi, bertambah saat aktif |
+| Melambat saat koneksi sering gagal | Backoff `1s × 1.6^n` sampai maksimum 15 s | Tes: jumlah panggilan dalam jendela tidak melonjak |
+| Berhenti saat tidak perlu | Polling berhenti total saat misi terminal; tanpa misi terpilih tidak ada polling | Tes: panggilan berhenti setelah `completed` |
+| Deteksi perubahan dari luar | Daftar misi disegarkan tiap 3 tick | Implementasi |
+| Refresh setelah aksi pengguna | `cancel()` → refresh segera + muat ulang daftar | Implementasi |
+| Indikator basi/galat | Notifikasi "Koneksi ke server bermasalah" & "Data mungkin basi" — **selalu terlihat** (dulu hanya tampil bila ada data sukses) | Tes: notifikasi muncul saat semua request gagal |
+| Tanpa progress karangan | Hanya "N dari M langkah selesai" dari server; tanpa persentase | Tes: `/\d+\s*%/` tidak muncul |
+
+### 14.3 Regresi UI (Phase 4)
+`npm run verify:ui` (baru) menyalakan API + dev server, menjalankan **audit responsif (16 rute × 6 lebar)** dan **audit kontras ter-render**, lalu mematikannya → **LOLOS** (0 temuan keduanya).
+`tests/ui-regression.test.tsx` (10 tes) & `tests/execution-polling.test.tsx` (5 tes) menambah **15 tes** deterministik (tanpa dev server / tanpa folder release terkunci).
+
+### 14.4 Uji kesiapan provider (Phase 5)
+`npm run smoke:provider` → **7 lolos · 3 belum terverifikasi · 0 gagal** (exit 0).
+- Tanpa kredensial: `/api/capabilities` melaporkan `configured=false`; `/api/chat` → HTTP 501 `provider_not_configured` (tanpa panggilan keluar).
+- Jalur kesalahan vs **mock lokal** (127.0.0.1, tanpa lalu lintas internet): 401, 429, dan respons non-JSON semuanya **gagal terlihat** (HTTP 502 + pesan(provider_request_error) berisi alasan provider) dan **kunci tidak bocor** di badan respons.
+- Jaringan gagal/timeout: HTTP 502 dengan pesan koneksi, bukan 200.
+- Uji **live** (chat/vision/STT): **UNVERIFIED** — tidak ada kredensial asli di lingkungan ini, jadi tidak ada permintaan nyata yang dilakukan dan tidak ada klaim keberhasilan.
+
+### 14.5 Status rilis per platform (dibedakan dengan sengaja)
+| Platform | Build | Artefak | Izin eksekusi | Instalasi | Startup | Smoke | Catatan |
+|---|---|---|---|---|---|---|---|
+| **Windows x64** | ✅ exit 0 | Setup + Portable + 2 ZIP | n/a (PE) | ✅ senyap + upgrade dari 0.5.0 | ✅ | ✅ **51/51** | Native Win10 x64, tanpa sertifikat |
+| **Linux x64** | ⚠️ direktori aplikasi | tarball portabel + ZIP + ZIP sumber | ✅ **0755** (`dudu-ai`, `chrome-sandbox`, `chrome_crashpad_handler` — diverifikasi lewat `tar -tvf`) | ❌ | ❌ | ❌ | `.deb`/AppImage & runtime Linux harus di Linux; tarball **belum dijalankan** di Linux |
+| **macOS x64/arm64** | ❌ | ❌ | n/a | ❌ | ❌ | ❌ | electron-builder menolak build mac dari Windows; konfigurasi + job CI `macos-14` siap |
+| Sumber | ✅ | ZIP sumber | n/a | — | — | — | `npm ci && npm run dist:linux` / `dist:mac` |
+
+---
 
 ## 13. v0.6.1 — Visual QA, release hardening & Execution Center
 

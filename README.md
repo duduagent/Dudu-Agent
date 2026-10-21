@@ -46,18 +46,18 @@ Berkas ada di folder `release/`; hash lengkap di `release/SHA256SUMS-0.6.0.txt`.
 
 Paket ZIP siap pakai: `Dudu-AI-0.6.0-Windows-x64.zip` (installer + portable + dokumentasi), `Dudu-AI-0.6.0-Linux-x64.zip` (tarball + dokumentasi). Semua paket **belum ditandatangani** (tidak ada sertifikat kode-signing) dan **belum diverifikasi di mesin bersih selain Windows asli**.
 
-## Unduhan v0.6.1 (21 Oktober 2026)
+## Unduhan v0.6.2 (22 Oktober 2026)
 
-Berkas ada di folder `release/`; hash lengkap di `release/SHA256SUMS-0.6.1.txt`.
+Berkas ada di folder `release/`; hash lengkap di `release/SHA256SUMS-0.6.2.txt`.
 
 | Platform | Installer | Portable | Status |
 |---|---|---|---|
-| **Windows 10/11 x64** | `Dudu-AI-Setup-0.6.1-x64.exe` | `Dudu-AI-Portable-0.6.1-x64.exe` | **Tersedia & diuji** — dipasang senyap, upgrade dari 0.5.0 diuji, smoke 51/51 |
-| **Linux x64** | `dudu-ai_0.6.1_amd64.deb` — *belum ada* | `Dudu-AI-0.6.1-x86_64.AppImage` — *belum ada*; tersedia `Dudu-AI-0.6.1-linux-x64-portable.tar.gz` (extract → `chmod +x dudu-ai`) | **Sebagian** — paket resmi dibangun di Linux (`npm run dist:linux`); tarball yang ada **belum dijalankan di Linux** |
-| **macOS x64/arm64** | `Dudu-AI-0.6.1-<arch>.dmg` — *belum ada* | `Dudu-AI-Portable-0.6.1-<arch>.zip` — *belum ada* | **Harus dibangun di macOS** (`npm run dist:mac` atau job CI `macos-14`) |
-| Semua OS (build sendiri) | — | `Dudu-AI-0.6.1-source.zip` | Tersedia (tanpa `node_modules`) |
+| **Windows 10/11 x64** | `Dudu-AI-Setup-0.6.2-x64.exe` | `Dudu-AI-Portable-0.6.2-x64.exe` | **Tersedia & diuji** — dipasang senyap, upgrade dari 0.5.0 diuji, smoke 51/51 |
+| **Linux x64** | `dudu-ai_0.6.2_amd64.deb` — *belum ada* | `Dudu-AI-0.6.2-x86_64.AppImage` — *belum ada*; tersedia `Dudu-AI-0.6.2-linux-x64-portable.tar.gz` (sudah berisi izin eksekusi 0755, tinggal extract & jalankan `./dudu-ai`) | **Sebagian** — paket resmi `.deb`/AppImage dibangun di Linux (`npm run dist:linux`); tarball **belum dijalankan di Linux** |
+| **macOS x64/arm64** | `Dudu-AI-0.6.2-<arch>.dmg` — *belum ada* | `Dudu-AI-Portable-0.6.2-<arch>.zip` — *belum ada* | **Harus dibangun di macOS** (`npm run dist:mac` atau job CI `macos-14`) |
+| Semua OS (build sendiri) | — | `Dudu-AI-0.6.2-source.zip` | Tersedia (tanpa `node_modules`) |
 
-Paket ZIP siap pakai: `Dudu-AI-0.6.1-Windows-x64.zip` (installer + portable + dokumentasi), `Dudu-AI-0.6.1-Linux-x64.zip` (tarball + dokumentasi). Semua paket **belum ditandatangani** (tidak ada sertifikat kode-signing). Rilis 0.6.0 tetap tersedia di `release/` (hash `SHA256SUMS-0.6.0.txt` tidak berubah).
+Paket ZIP siap pakai: `Dudu-AI-0.6.2-Windows-x64.zip` (installer + portable + dokumentasi), `Dudu-AI-0.6.2-Linux-x64.zip` (tarball + dokumentasi). Semua paket **belum ditandatangani**. Rilis sebelumnya (0.5.0 / 0.6.0 / 0.6.1) tetap tersedia di `release/` dengan hash masing-masing.
 
 ## Untuk pengguna (aplikasi terpasang)
 
@@ -114,6 +114,9 @@ cp .env.example .env   # isi DUDU_PROVIDER_API_KEY (mode web saja)
 | `node scripts/verify-asar.mjs <app.asar> 0.6.0` | Cek isi paket: versi, fitur 0.6.0, dan tidak adanya kunci API |
 | `node scripts/ui-audit.cjs` | Audit responsif 16 halaman × 6 lebar + screenshot (lihat [UI_DESIGN_SYSTEM.md](UI_DESIGN_SYSTEM.md)) |
 | `node scripts/contrast-audit.cjs` | Audit kontras komponen **ter-render** (teks ≥4.5:1, non-teks ≥3:1) |
+| `npm run verify:ui` | Jalankan kedua audit UI otomatis (menyalakan server sendiri, lalu mematikannya) |
+| `npm run smoke:provider` | Uji kesiapan provider: jalur kesalahan (mock lokal) + uji live bila kredensial tersedia |
+| `node scripts/tar-portable.mjs <folder> <out.tar.gz>` | Arsip tar.gz portabel Linux **dengan mode POSIX benar** (0755 untuk eksekutable) |
 | `node scripts/upgrade-check.cjs <setup-lama> <setup-baru>` | Uji kompatibilitas upgrade: data pengguna, startup, smoke, dan uninstall |
 | `node scripts/contrast-check.mjs` | Rasio kontras WCAG untuk token warna |
 

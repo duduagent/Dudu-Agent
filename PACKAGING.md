@@ -50,6 +50,21 @@ node scripts/package-release.mjs macos     # .dmg + .app zip → ZIP
 node scripts/package-release.mjs source    # paket sumber (untuk membangun sendiri)
 ```
 
+### Verifikasi rilis (perintah yang dijalankan)
+
+| Perintah | Fungsi | Kapan |
+|---|---|---|
+| `npm run verify` | typecheck + tes + build produksi | setiap rilis |
+| `npm run verify:ui` | menyalakan API + dev server, lalu **audit responsif** (16 rute × 6 lebar) dan **audit kontras ter-render**; mematikan server lagi | setiap rilis (butuh Electron lokal) |
+| `npm run smoke:provider` | uji jalur provider: tanpa kredensial, 401/429/non-JSON (mock lokal), jaringan gagal, + uji live bila kredensial asli ada | sebelum rilis & saat konfigurasi provider berubah |
+| `node scripts/smoke-desktop.mjs <biner>` | smoke 51 pemeriksaan pada biner desktop | setelah `dist:win` |
+| `node scripts/upgrade-check.cjs <setup-lama> <setup-baru>` | kompatibilitas upgrade: data pengguna, startup, smoke, uninstall | sebelum rilis mayor |
+| `node scripts/verify-asar.mjs <app.asar> <versi>` | memastikan paket berisi versi & fitur yang benar dan **tanpa kunci API** | setelah build |
+| `node scripts/tar-portable.mjs <folder> <out.tar.gz>` | arsip Linux dengan mode POSIX benar (0755 untuk eksekutable) | saat membuat portabel Linux |
+
+> Jalankan `npm run verify:ui` **tanpa** dev server lain yang aktif: Vite yang berjalan mengunci `release/` dan membuat build berikutnya gagal dengan `EPERM`.
+> Repositori Git sudah diinisialisasi (branch `main`, tanpa remote/tag — lihat `TEST_REPORT.md` §14.1). Build & rilis tetap dilakukan manual di mesin build; CI (`.github/workflows/build.yml`) sudah mencakup ubuntu/windows/macos.
+
 ## 4. Cross-compilation — apa yang benar-benar terjadi
 - ⚠️ **Jebakan build yang nyata (v0.6.1)**: bila aplikasi hasil build sebelumnya masih berjalan dari `release\win-unpacked` (mis. smoke test yang tertinggal), build berikutnya gagal dengan `EPERM: rename 'release\win-unpacked.tmp' -> 'release\win-unpacked'`. Tutup semua proses `Dudu AI.exe`/`electron.exe` yang menyentuh folder `release/`, hapus sisa `release\win-unpacked.tmp`, lalu ulangi build. Jangan membangun paket sambil aplikasi desktop dari folder `release/` berjalan. Kadang rename ditolak sesaat oleh pemindai antivirus: hapus folder `win-unpacked.tmp` dan ulangi build.- **Windows dibangun native di Windows 10 x64** (bukan cross-compile). Build Linux di Linux, macOS di macOS. Build Windows di Linux memerlukan **wine** (pembuatan uninstaller NSIS & penyuntingan ikon/metadata `.exe` menjalankan program Windows) — tanpa wine build berhenti dengan `spawn wine ENOENT` dan meninggalkan stub `.exe` tidak lengkap; **jangan dipakai**.
 - **Build macOS dari Windows/macOS non-macOS ditolak oleh electron-builder** (`Build for macOS is supported only on macOS`). Tidak ada jalur lain yang sah (membuild .app di Linux juga ditolak; membuat .dmg sendiri tanpa Electron macOS tidak menghasilkan aplikasi yang benar).
@@ -73,7 +88,7 @@ Ukuran v0.6.0: installer Windows ≈ 103,4 MB, portable ≈ 103,2 MB, `app.asar`
 ## 8. Platform & dependensi sistem (Linux)
 x86_64. `.deb` memakai dependensi standar Electron (GTK3, NSS, libnotify, XDG utils — lihat `dpkg-deb -I`). Pada v0.5.0 diuji pada Ubuntu 24.04 (container). Untuk rilis 0.6.0, paket Linux harus dibangun ulang di runner Linux dan diuji ulang di sana sebelum dipublikasikan.
 
-⚠️ **Portabel Linux (tarball)**: izin eksekusi bit **tidak dapat disimpan** saat arsip dibuat dari Windows. Setelah ekstraksi jalankan `chmod +x dudu-ai` (atau `chmod +x dudu-ai chrome-sandbox` bila perlu). Paket ini **belum dijalankan** di Linux — gunakan `.deb`/AppImage dari CI untuk rilis resmi.
+⚠️ **Portabel Linux — izin eksekusi sudah benar sejak 0.6.2.** Saat arsip dibuat dari Windows, bit POSIX tidak bisa disimpan oleh `bsdtar`, sehingga pengguna lama harus `chmod +x dudu-ai` secara manual. `scripts/tar-portable.mjs` menulis header ustar sendiri dengan mode **0755** untuk `dudu-ai`, `chrome-sandbox`, dan `chrome_crashpad_handler` (0644 untuk berkas lain). Verifikasi: `tar -tvf Dudu-AI-0.6.2-linux-x64-portable.tar.gz` → `-rwxr-xr-x ... dudu-ai`. Paket ini **tetap belum dijalankan di Linux** — gunakan `.deb`/AppImage dari CI untuk rilis resmi.
 
 ## 9. Placeholder yang HARUS diganti sebelum rilis publik
 - `homepage` di `package.json` (`https://example.com/dudu-ai`) dan `linux.maintainer` di `electron-builder.yml` (`Dudu AI <dudu-ai@example.com>`): dibutuhkan metadata `.deb`; nilainya bukan kontak sebenarnya.

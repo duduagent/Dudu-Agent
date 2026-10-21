@@ -15,7 +15,11 @@ import { PageShell, StateMsg, fmtDate } from './PageShell'
 
 const TERMINAL: MissionState[] = ['completed', 'failed', 'cancelled']
 const isLive = (s: MissionState) => s === 'queued' || s === 'running'
-const POLL_MS = 1200
+
+/** Poll adaptif: batas bawah/atas, dan rasio perlambatan saat jaringan sering gagal. */
+const POLL = { min: 1000, max: 15000, backoff: 1.6, listEveryNTicks: 3 }
+/** Data dianggap basi bila tidak ada pembaruan sukses selama ini. */
+const STALE_MS = 12000
 
 const STATE_LABEL: Record<MissionState, string> = {
   draft: 'Menunggu persetujuan', queued: 'Antre', running: 'Berjalan',
@@ -43,7 +47,6 @@ export function ExecutionCenterPage({ onToggleLeft, leftCollapsed, onActivity, o
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [actionErr, setActionErr] = useState<string | null>(null)
-  const pollRef = useRef<number | null>(null)
 
   const list = missions.data ?? []
   const liveMissions = useMemo(() => list.filter(m => isLive(m.state)), [list])
@@ -65,21 +68,88 @@ export function ExecutionCenterPage({ onToggleLeft, leftCollapsed, onActivity, o
     }
   }, [])
 
-  // Polling hanya saat misi yang dipantau belum selesai (hemat sumber daya, mudah diuji).
+  // ---- Poll adaptif: satu siklus hidup per tampilan, tanpa tumpang tindih ----
+  const inFlight = useRef(false)
+  const timer = useRef<number | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const failCount = useRef(0)
+  const tickCount = useRef(0)
+  const [stale, setStale] = useState(false)
+
+  const interval = () => Math.min(POLL.max, POLL.min * Math.pow(POLL.backoff, failCount.current))
+
+  const pollOnce = useCallback(async (id: string) => {
+    if (inFlight.current) return null          // cegah request bertumpuk
+    inFlight.current = true
+    const ac = new AbortController()
+    abortRef.current = ac
+    try {
+      const m = await api.getMission(id, ac.signal)
+      failCount.current = 0
+      setLiveErr(null); setUpdatedAt(Date.now()); setStale(false)
+      setLive(m)
+      return m
+    } catch (e) {
+      if (ac.signal.aborted) return null       // request dibatalkan (unmount/pindah misi) → bukan error
+      failCount.current += 1
+      setLiveErr(e instanceof Error ? e.message : 'Gagal memuat misi.')
+      return null
+    } finally {
+      inFlight.current = false
+      if (abortRef.current === ac) abortRef.current = null
+    }
+  }, [])
+
   useEffect(() => {
-    if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null }
-    if (!selectedId) { setLive(null); return }
-    void refresh(selectedId)
-    pollRef.current = window.setInterval(async () => {
-      const m = await refresh(selectedId)
-      if (m && TERMINAL.includes(m.state)) {
-        if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null }
-        missions.reload()
-      }
-    }, POLL_MS)
-    return () => { if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null } }
+    if (!selectedId) { setLive(null); setStale(false); return }
+    let stopped = false
+    failCount.current = 0
+    tickCount.current = 0
+
+    const clearTimer = () => { if (timer.current) { window.clearTimeout(timer.current); timer.current = null } }
+
+    const tick = async () => {
+      if (stopped) return
+      if (document.hidden) { schedule(); return }   // jangan agresif saat tab tersembunyi
+      const m = await pollOnce(selectedId)
+      if (stopped) return
+      if (m && TERMINAL.includes(m.state)) { missions.reload(); return }  // selesai → berhenti polling
+      // Deteksi perubahan misi dari luar (mis. dibatalkan di tab lain) tiap beberapa tick.
+      tickCount.current += 1
+      if (tickCount.current % POLL.listEveryNTicks === 0) missions.reload()
+      schedule()
+    }
+    const schedule = () => {
+      clearTimer()
+      if (!stopped) timer.current = window.setTimeout(() => { void tick() }, interval())
+    }
+    const resume = () => {
+      if (stopped) return
+      if (document.hidden) return
+      clearTimer()
+      void tick()                                  // lanjut segera saat aktif lagi
+    }
+    const onVis = () => { if (!document.hidden) resume() }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', resume)
+    void tick()
+    return () => {
+      stopped = true
+      clearTimer()
+      abortRef.current?.abort()                    // batalkan request yang masih berjalan
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('focus', resume)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, refresh])
+  }, [selectedId, pollOnce])
+
+  // Tandai data basi bila pembaruan terakhir sudah lama (mis. koneksiDiam /app tersuspend).
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      setStale(updatedAt != null && Date.now() - updatedAt > STALE_MS)
+    }, 2000)
+    return () => window.clearInterval(t)
+  }, [updatedAt])
 
   async function start(m: Mission) {
     setBusy(m.id); setActionErr(null); setSelectedId(m.id)
@@ -102,8 +172,12 @@ export function ExecutionCenterPage({ onToggleLeft, leftCollapsed, onActivity, o
   }
   async function cancel(m: Mission) {
     setBusy(m.id); setActionErr(null)
-    try { await api.cancelMission(m.id); await refresh(m.id); missions.reload(); onActivity(`Misi dibatalkan: ${m.title}`) }
-    catch (e) { setActionErr(e instanceof Error ? e.message : 'Gagal membatalkan misi.') } finally { setBusy(null) }
+    try {
+      await api.cancelMission(m.id)
+      await refresh(m.id)                           // segarkan segera setelah aksi pengguna
+      missions.reload()
+      onActivity(`Misi dibatalkan: ${m.title}`)
+    } catch (e) { setActionErr(e instanceof Error ? e.message : 'Gagal membatalkan misi.') } finally { setBusy(null) }
   }
 
   const steps = live?.steps ?? []
@@ -126,11 +200,13 @@ export function ExecutionCenterPage({ onToggleLeft, leftCollapsed, onActivity, o
         <div className="panel-head">
           <div>
             <h2 className="panel-title" id="ec-live-title">Eksekusi langsung</h2>
-            <p className="panel-sub">Status di bawah dibaca ulang dari server (polling tiap {POLL_MS / 1000} detik) selama misi berjalan. Tidak ada persentase karangan — hanya langkah dan waktu sebenarnya.</p>
+            <p className="panel-sub">Status di bawah dibaca ulang dari server (polling adaptif {POLL.min / 1000}–{POLL.max / 1000} detik, melambat saat koneksi sering gagal, berhenti saat tab tersembunyi) selama misi berjalan. Tidak ada persentase karangan — hanya langkah dan waktu sebenarnya.</p>
           </div>
           <div className="panel-actions">
             <span className="pill neutral">{liveMissions.length} berjalan</span>
-            {updatedAt && <span className="pill neutral">diperbarui {clock(updatedAt)}</span>}
+            {updatedAt && <span className={cx('pill', stale ? 'warn' : 'neutral')}>
+              {stale ? 'terakhir pembaruan ' : 'diperbarui '}{clock(updatedAt)}
+            </span>}
           </div>
         </div>
 
@@ -149,6 +225,20 @@ export function ExecutionCenterPage({ onToggleLeft, leftCollapsed, onActivity, o
               </li>
             ))}
           </ul>
+        )}
+
+        {liveErr && (
+          <p className="notice err" role="alert">
+            <span className="notice-body">
+              <strong className="notice-title">Koneksi ke server bermasalah</strong>
+              Gagal memuat state terbaru: {liveErr}. Data di bawah bisa jadi basi — polling akan melambat dan mencoba lagi otomatis.
+            </span>
+          </p>
+        )}
+        {!liveErr && stale && (
+          <p className="notice warn" role="status">
+            <span className="notice-body">Data mungkin basi — pembaruan terakhir {updatedAt ? clock(updatedAt) : 'tidak diketahui'}. Polling dilanjutkan otomatis.</span>
+          </p>
         )}
 
         {!live && (
@@ -173,8 +263,6 @@ export function ExecutionCenterPage({ onToggleLeft, leftCollapsed, onActivity, o
                 )}
               </div>
             </div>
-
-            {liveErr && <p className="state-msg error" role="alert">Gagal memuat state terbaru: {liveErr}. Data di bawah bisa jadi basi.</p>}
 
             <ol className="timeline" aria-label="Langkah eksekusi">
               {steps.map(s => {

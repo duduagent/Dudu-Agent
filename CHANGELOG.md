@@ -3,6 +3,40 @@
 Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Versi memakai SemVer.
 Status fitur memakai kosakata yang jujur: **Implemented** · **Tested** · **Partially implemented** · **Mock / simulation** · **Planned** · **Blocked**.
 
+## [0.6.2] — 2026-10-22 — RILIS
+
+> Cakupan: **release readiness & execution reliability**. Tidak ada perubahan kontrak API, tidak ada fitur baru yang mengubah perilaku pengguna, dan tidak ada perubahan skema penyimpanan.
+>
+> **Artefak:** `release/SHA256SUMS-0.6.2.txt` · Windows (Setup + Portable + ZIP) · Linux (tarball portabel + ZIP) · sumber (ZIP).
+> **Status platform:** Windows dibangun & diuji (install senyap, upgrade 0.5.0→0.6.1 teruji, smoke 51/51). Linux: hanya direktori aplikasi + tarball portabel **dengan bit izin 0755 yang benar** (dulu pengguna wajib `chmod +x`); `.deb`/AppImage & seluruh runtime Linux masih harus dibangun/dijalankan di Linux. macOS: konfigurasi + job CI `macos-14` siap, **artefak belum ada** (harus dibangun di macOS).
+
+### Added
+- **Repositori Git diinisialisasi** (branch `main`, commit awal berisi seluruh aplikasi + dokumentasi + CI; 128 file). `.gitignore` diperketat: `release/`, `node_modules/`, `dist/`, `*.pem/key/pfx/p12/crt/cer`, `.env*` (kecuali `.env.example`), `dudu.env`, `ui-audit*/`, `ui-contrast/`. `.gitattributes`Menormalkan akhir baris (LF di repo, CRLF saat checkout di Windows) karena repo juga dibangun di Linux/macOS. **Tidak ada tag, tidak ada remote, tidak ada push** (remote URL perlu ditetapkan pemilik).
+- **`scripts/verify-ui.mjs`** (`npm run verify:ui`) — menyalakan API + dev server sendiri, menjalankan audit responsif **dan** audit kontras ter-render, lalu mematikannya. Mengubah audit visual dari "manual" menjadi bagian workflow otomatis.
+- **`scripts/provider-smoke.mjs`** (`npm run smoke:provider`) — prosedur uji provider: tanpa kredensial, jalur kesalahan (401/429/non-JSON) terhadap **mock lokal**, jaringan gagal/timeout, dan uji live (chat/vision/STT) **hanya** bila kredensial asli tersedia. Kredensial tidak pernah dicetak; skenario live tanpa kredensial dilaporkan **UNVERIFIED**, bukan "lolos".
+- **`scripts/tar-portable.mjs`** — penulis arsip tar ustar dengan **mode POSIX benar** (0755 untuk `dudu-ai`, `chrome-sandbox`, `chrome_crashpad_handler`; 0644 untuk lainnya), menutup celah "wajib chmod +x" pada paket portabel Linux.
+- **`scripts/contrast-audit.cjs`** — audit kontras komponen **ter-render** (fg/bg efektif, ambang 4.5:1 teks & 3:1 non-teks, kontrol nonaktif dikecualikan).
+- **`scripts/upgrade-check.cjs`** — uji kompatibilitas upgrade (pasang versi lama → data pengguna → pasang versi baru di atasnya → pastikan data, startup, smoke, dan uninstall tetap benar).
+- **Tes regresi UI** (`tests/ui-regression.test.tsx`, 10 tes): kontrak token kontras di `styles.css` (tombol utama ≥4.5:1, emas terang dilarang menjadi warna teks, batas kontrol ≥3:1, batas `!important`), perilaku CLI "Salin" (umpan balik hanya setelah berhasil, tidak ada umpan balik bila clipboard ditolak), status connector yang jujur (scaffold tanpa tombol uji koneksi), keadaan kosong misi tanpa persentase karangan, badge Pusat Eksekusi dari registry nyata, dan tidak ada aksi navigasi yang terduplikasi.
+- **Tes polling adaptif** (`tests/execution-polling.test.tsx`, 5 tes): tidak ada request bertumpuk, berhenti saat misi terminal, backoff + indikator koneksi saat gagal, berhenti saat tab tersembunyi & lanjut saat aktif, serta timer/request dibatalkan saat komponen dilepas.
+
+### Changed
+- **Polling Pusat Eksekusi jadi adaptif** (`ExecutionCenterPage.tsx`): satu siklus hidup per tampilan, penjaga anti-tumpang-tindih, `AbortController` untuk membatalkan request usang, jeda 1–15 detik (melambat saat jaringan sering gagal), **berhenti saat tab tersembunyi** dan lanjut segera saat aktif kembali, berhenti total saat misi selesai, dan refresh segera setelah aksi pengguna.
+- **Indikator koneksi/stale kini selalu terlihat** — sebelumnya notifikasi galat hanya tampil bila ada data sukses, sehingga koneksi mati tampak seperti "kosong".
+- Tombol "Buka Tools & Integrations" di Pusat Eksekusi menjadi **satu per grup** (sebelumnya diulang di setiap kartu).
+
+### Fixed
+- Jebakan build `EPERM` pada `release/` didokumentasikan: dev server Vite yang berjalan mengunci folder tersebut; build wajib dijalankan tanpa dev server aktif.
+
+### Verified
+- `npm run verify` = **PASS** (typecheck 0 error · **251 tes / 23 file** · build produksi).
+- `npm run verify:ui` = **LOLOS** (audit responsif 16 rute × 6 lebar: 0 temuan · audit kontras ter-render: 0 temuan).
+- `npm run smoke:provider` = **7 lolos · 3 belum terverifikasi (butuh kredensial asli) · 0 gagal**.
+- Smoke biner desktop 0.6.2: **51/51 lulus** · kompatibilitas upgrade 0.5.0 → 0.6.1: **LOLUS**.
+- Backup penuh workspace sebelum inisialisasi Git: `C:\Users\LENOVO\Documents\dudu-backup-2026-10-21` (3,7 GB).
+
+---
+
 ## [0.6.1] — 2026-10-21 — RILIS
 
 > Cakupan 0.6.1: **visual QA & accessibility hardening** atas UI 0.6.0 + **Pusat Eksekusi** (timeline hidup & pusat "butuh perhatian"). Rilis 0.6.0 sendiri tidak berubah; paket di `release/` dibangun ulang karena UI dan kode server ikut berubah.
