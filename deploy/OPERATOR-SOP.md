@@ -1,11 +1,36 @@
 # SOP Operator — Daftar Tunggu Dudu (privasi, retensi, pemulihan, insiden)
 
-Untuk siapa pun yang mengoperasikan instance Dudu yanggesellschaftkan daftar tunggu (landing page publik).
+Untuk siapa pun yang mengoperasikan instance Dudu yang menyimpan daftar tunggu (landing page publik).
 Semua keputusan yang **belum ditetapkan pemilik produk** diberi label **DECISION REQUIRED** — jangan
-ditebak, jangan diam-diam.putuskan.
+ditebak, jangan diam-diam memutuskan.
 
 > Dokumen ini mengatur **prosedur**, bukan kebijakan bisnis. Angka retensi, PIC, dan tenggat respons
 > harus ditetapkan pemilik produk sebelum instance dipakai publik.
+
+---
+
+## 0. Tabel keputusan (ringkasan — pemilik produk)
+
+Status: `DITETAPKAN` (sudah ada di kode/dokumen) · `DECISION REQUIRED` (menunggu pemilik produk).
+
+| # | Item keputusan | Status | Usulan (bukan keputusan) | Dampak jika tidak diputuskan |
+|---|---|---|---|---|
+| K1 | Tujuan pengumpulan | **DITETAPKAN** | hubsungi saat rilis terverifikasi / beta mobile | — |
+| K2 | Data yang dikumpulkan | **DITETAPKAN** | email + platform (+ role, note opsional) | — |
+| K3 | Prinsip minimisasi | **DITETAPKAN** | jangan nama/HP/alamat/pembayaran | — |
+| K4 | **Kebijakan retensi email** | `DECISION REQUIRED` | hapus entri > 12 bulan | data menumpuk tanpa batas |
+| K5 | **Apakah field `note` perlu** | `DECISION REQUIRED` | boleh dikumpulkan, hapus setelah 30 hari | data bebas menumpuk |
+| K6 | **PIC operasional** (siapa baca & ekspor daftar) | `DECISION REQUIRED` | satu peran bernama | tidak ada yang bertanggung jawab |
+| K7 | **PIC insiden** (kebocoran/akses tak sah) | `DECISION REQUIRED` | satu peran bernama + cadangan | insiden tanpa owner |
+| K8 | **Alamat kontak resmi** untuk permintaan penghapusan | `DECISION REQUIRED` | alamat pada domain resmi (belum ada) | pendaftar tidak bisa meminta hapus |
+| K9 | **Tenggat respons penghapusan** | `DECISION REQUIRED` | 30 hari kalender | permintaan menggantung |
+| K10 | **Backup & retensi backup** | `DECISION REQUIRED` | 1 salinan terenkripsi, retensi 3 bulan | data hilang saat insiden |
+| K11 | **Prosedur insiden data** | **DITETAPKAN** | lihat §8 | — |
+| K12 | Logging tanpa email | **DITETAPKAN** | API & proxy tidak mencatat email | — |
+| K13 | Halaman operator (UI daftar) | **DITETAPKAN (tidak ada)** | akses lewat berkas | — |
+| K14 | Notifikasi otomatis ke pendaftar | **DITETAPKAN (tidak ada)** | kontak dilakukan manusia | — |
+
+> kolom "Usulan" **bukan keputusan** — kolom itu diisi pemilik produk, bukan agen.
 
 ---
 

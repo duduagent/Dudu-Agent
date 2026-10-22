@@ -134,7 +134,13 @@ grep -R 'example.invalid' /var/log/nginx/ | wc -l            # 12. harus 0
 - Jangan mengaktifkan API Dudu penuh lewat proxy (tanpa autentikasi).
 - Jangan menulis email ke log proxy maupun log aplikasi.
 
-## 7. Perintah bantu
+## 7. Keputusan peluncuran & daftar gate
+
+Keputusan domain/hosting/privasi/rilis + **release gates** (16 gate dengan status jujur) ada di
+**[deploy/LAUNCH_DECISIONS.md](LAUNCH_DECISIONS.md)**. Dokumen itu adalah tempat pemilik produk
+menetapkan keputusan; dokumen ini (README) berisi konfigurasi & prosedur teknisnya.
+
+## 8. Perintah bantu
 
 ```bash
 npm run proxy:check           # validasi statis konfigurasi (wajib lulus)

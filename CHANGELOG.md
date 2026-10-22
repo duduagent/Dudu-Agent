@@ -57,6 +57,20 @@ Status fitur memakai kosakata yang jujur: **Implemented** · **Tested** · **Par
 | Tidak ada mekanisme penghapusan/retensi | Low | `store.remove(email)` + kebijakan retensi/backup/akses didokumentasikan (SOP operator) |
 | Tes `audit-trail-ui` "filter outcome" **flaky** (assertion terakhir di luar `waitFor` → balapan render) | Low | Assertion dipindah ke dalam `waitFor` (tidak dilonggarkan); 353 tes hijau 2× berturut-turut |
 
+### Added — keputusan produk & rencana peluncuran (fase ini)
+- **`deploy/LAUNCH_DECISIONS.md`** — dokumen keputusan peluncuran: kriteria pemilihan domain (+ prosedur
+  pemeriksaan ketersediaan yang harus dijalankan pemilik produk), placeholder yang harus diganti
+  bersama domain, record DNS yang dibutuhkan, rencana HTTPS & pembaruan sertifikat, konsekuensi perubahan
+  domain (canonical/sitemap/robots/OG/Twitter), rancangan **dua komponen hosting** (statis vs backend)
+  beserta batas kepercayaan & alur datanya, port yang boleh/tidak boleh diekspos, risiko menjalankan
+  waiting list di mesin yang sama dengan runtime desktop, rencana rilis (landing page & backend/details
+  dikirim **bersama**), prosedur rollback, syarat sebelum tag/release, dan **16 release gates** dengan
+  status jujur (PASS / FAIL / NOT VERIFIED / DECISION REQUIRED).
+- **`deploy/OPERATOR-SOP.md` §0** — tabel keputusan ringkas (K1–K14) untuk pemilik produk: retensi email,
+  perlukah field `note`, PIC operasional, PIC insiden, alamat kontak resmi, tenggat respons penghapusan,
+  kebijakan backup & retensinya, prosedur insiden data. Yang belum ditetapkan berlabel `DECISION REQUIRED`;
+  tidak ada identitas, kontak, atau angka retensi yang dikarang.
+
 ### Known blockers (belum boleh dipublikasikan)
 - **Domain resmi belum ditetapkan** → `sitemap.xml`, `robots.txt`, dan meta `og:image`/`twitter:image`
   memakai placeholder `REPLACE-WITH-OFFICIAL-DOMAIN`; canonical URL belum ada. `npm run landing:check:strict`
