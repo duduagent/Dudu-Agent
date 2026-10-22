@@ -12,8 +12,8 @@ files:
   - package.json
   - dist/**
   - electron/**
-  - server/chat-api.mjs
-  - server/config.mjs
+  - server/*.mjs
+  - "!server/chat-server.mjs"
   - build/icon.png
   - "!**/*.map"
   - "!**/.env*"
@@ -38,6 +38,30 @@ nsis:
   artifactName: Dudu-AI-Setup-${version}-${arch}.${ext}
 portable:
   artifactName: Dudu-AI-Portable-${version}-${arch}.${ext}
+
+# macOS hanya bisa dibangun di mesin macOS (electron-builder menolak build mac dari Windows/Linux).
+# Build ini dipakai oleh workflow .github/workflows/build.yml di runner macos-latest.
+mac:
+  target:
+    - { target: dmg, arch: [x64, arm64] }
+    - { target: zip, arch: [x64, arm64] }
+  icon: build/icon.png
+  category: public.app-category.productivity
+  darkModeSupport: true
+  identity: null            # tanpa sertifikat: hasil TIDAK ditandatangani (lihat PACKAGING.md)
+  notarize: false
+  artifactName: Dudu-AI-Portable-${version}-${arch}.${ext}
+  extendInfo:
+    NSHumanReadableCopyright: "Dudu AI"
+dmg:
+  artifactName: Dudu-AI-${version}-${arch}.${ext}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
 
 linux:
   target:

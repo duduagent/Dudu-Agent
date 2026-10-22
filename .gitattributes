@@ -1,0 +1,18 @@
+# Normalisasi akhir baris: repo ini juga dibangun di Linux & macOS (CI), jadi di repo
+# disimpan LF, sedangkan checkout di Windows boleh memakai CRLF.
+* text=auto eol=lf
+
+# Biner
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.exe binary
+*.dmg binary
+*.zip binary
+*.gz binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
