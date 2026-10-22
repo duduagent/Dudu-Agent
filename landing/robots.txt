@@ -1,0 +1,10 @@
+# robots.txt — Dudu Public Landing Page
+# Catatan: domain resmi belum ditetapkan, jadi baris Sitemap di bawah sengaja
+# memakai placeholder yang DETEKSI oleh `npm run landing:check` (script akan gagal
+# selama placeholder masih ada). Ganti dengan domain resmi sebelum publikasi.
+
+User-agent: *
+Allow: /
+Disallow: /docs/
+
+Sitemap: https://REPLACE-WITH-OFFICIAL-DOMAIN/sitemap.xml

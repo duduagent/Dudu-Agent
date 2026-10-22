@@ -48,6 +48,27 @@ Berkas ada di folder `release/`; hash lengkap di `release/SHA256SUMS-0.6.0.txt`.
 
 Paket ZIP siap pakai: `Dudu-AI-0.6.0-Windows-x64.zip` (installer + portable + dokumentasi), `Dudu-AI-0.6.0-Linux-x64.zip` (tarball + dokumentasi). Semua paket **belum ditandatangani** (tidak ada sertifikat kode-signing) dan **belum diverifikasi di mesin bersih selain Windows asli**.
 
+## Landing Page Publik (v1)
+
+Situs pemasaran publik berdiri sendiri di folder `landing/` — **terpisah** dari aplikasi internal
+(tidak masuk routing aplikasi, tidak masuk paket desktop, tidak menyentuh backend misi/permission/approval/audit).
+
+```bash
+npm run landing:dev          # pratinjau statis → http://127.0.0.1:4173/
+npm run landing:check        # validasi tautan, aset, klaim, kontras, status kanal
+npm run landing:check:strict # sama, tetapi gagal bila masih ada blocker publikasi
+```
+
+Isinya: hero, demonstrasi memakai **screenshot nyata** dari build lokal, tiga kanal produk (Web App
+self-hosted · Desktop Windows tersedia · Linux parsial · macOS & mobile belum terbit), cara kerja enam tahap,
+use case, penjelasan keamanan (termasuk batasnya: audit **bukan** tamper-proof dan keamanan **belum**
+tersertifikasi), FAQ, formulir waiting list, dan footer. Formulir mengirim `POST /api/waiting-list`
+(baru, data disimpan lokal di folder data instance; tidak ada endpoint pembacaan daftar).
+
+**Belum boleh dipublikasikan** (`npm run landing:check:strict` akan gagal): domain resmi belum ditetapkan,
+jadi `sitemap.xml`/`robots.txt` masih memakai placeholder dan belum ada canonical URL.
+Panduan lengkap: [landing/README.md](landing/README.md).
+
 ## Unduhan v0.6.4 (22 Oktober 2026)
 
 Berkas ada di folder `release/`; hash lengkap di `release/SHA256SUMS-0.6.4.txt`.

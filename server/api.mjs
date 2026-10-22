@@ -19,6 +19,7 @@ import { CapabilityError, createCapabilityRegistry } from './capability-registry
 import { DuduError } from './errors.mjs'
 import { AuditError, createExecutionAudit } from './execution-audit.mjs'
 import { PermissionError } from './permissions.mjs'
+import { WaitingListError, createWaitingListStore } from './waiting-list.mjs'
 
 const json = (status, body) => ({ status, body })
 const INLINE_IMAGE = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
@@ -49,6 +50,9 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, au
   // Dua instance terpisah akan memecah rantai hash dan membuat dedupe tidak konsisten.
   const audit = auditInjected ?? createExecutionAudit({ dataDir, now: () => Date.now() })
   const missions = createMissionService({ dataDir, files, audit })
+  // Waiting list (landing page publik): daftar minat disimpan lokal di folder data
+  // instance ini. TIDAK ada endpoint pembacaan daftar — alamat email tidak bocor.
+  const waitingList = createWaitingListStore({ dataDir })
 
   /* ---------- gateway (satu-satunya jalur LLMSec untuk seluruh modul) ---------- */
   const credentials = createCredentialStore(dataDir)
@@ -457,6 +461,15 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, au
       return json(200, { run, evidence, mission: await missions.get(m[1]) })
     }
 
+    // ---------- waiting list (landing page publik) ----------
+    if (path === '/api/waiting-list' && method === 'POST') {
+      const b = readJson()
+      const { entry, created } = await waitingList.add({
+        email: b.email, platform: b.platform, role: b.role, note: b.note,
+      })
+      return json(created ? 201 : 200, { ok: true, created, entry })
+    }
+
     /* ---------- akun & sesi (opsional: mode lokal tetap berfungsi tanpa login) ---------- */
     if (path === '/api/auth/me') {
       const user = await currentUser(req)
@@ -557,6 +570,7 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, au
       if (e instanceof CapabilityError) return json(e.status, { error: e.code, message: e.message })
       if (e instanceof PermissionError) return json(e.status, { error: e.code, message: e.message, ...(e.detail ? { detail: e.detail } : {}) })
       if (e instanceof AuditError) return json(e.status, { error: e.code, message: e.message })
+      if (e instanceof WaitingListError) return json(e.status, { error: e.code, message: e.message })
       if (e instanceof DuduError) {
         console.error(`[api] ${req.method} ${String(req.path).split('?')[0]}: ${e.code}: ${String(e?.message || '').slice(0, 200)}`) // tanpa kunci/isi file
         return json(e.status, { error: e.code, message: e.message })

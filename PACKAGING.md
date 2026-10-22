@@ -155,6 +155,27 @@ Daftar hash lengkap: `release/SHA256SUMS-0.6.3.txt` (+ per-platform: `SHA256SUMS
 - `npm run check:imports` (baru) memuat **13 modul server dengan ESM native Node**. Ini menutup celah "hijau palsu": pada sesi ini `redact` terdeklarasi ganda membuat aplikasi **terpaket gagal start** sementara seluruh tes tetap hijau (vitest/esbuild mentoleransi linking ESM yang Node/Electron tolak). Skrip ini kini ikut `npm run verify`.
 - `node scripts/verify-asar.mjs release/win-unpacked/resources/app.asar 0.6.3` → **SEMUA PEMERIKSAAN LULUS**, tanpa kunci API literal di dalam asar.
 
+## 8.2 Landing page publik (bukan bagian dari paket desktop)
+
+Landing page pemasaran berada di `landing/` dan **sengaja tidak** ikut ke paket desktop: `electron-builder.yml`
+memuat daftar `files` eksplisit (`package.json`, `dist/**`, `electron/**`, `server/*.mjs`, `build/icon.png`),
+dan `landing/` tidak ada di sana — terverifikasi: **0 entri `landing/`** di dalam `app.asar` v0.6.4.
+
+Alasannya: landing page adalah situs publik (SEO, sitemap, robots, waiting list), sementara paket desktop adalah
+aplikasi lokal yang berjalan lewat `dudu://app`. Keduanya tidak boleh bercampur: halaman pemasaran tidak
+perlu masuk ke dalam paket aplikasi, dan paket aplikasi tidak perlu membawa aset pemasaran.
+
+Paket landing page = berkas statis apa adanya (tanpa build step):
+
+```bash
+npm run landing:check   # tautan/aset/klaim/kontras + laporan blocker publikasi
+npm run landing:dev     # pratinjau lokal → http://127.0.0.1:4173/
+```
+
+Untuk publikasi: unggah isi `landing/` ke host statis, ganti placeholder domain di `sitemap.xml` &
+`robots.txt`, tambahkan canonical URL, lalu jalankan `npm run landing:check:strict` (harus lulus).
+Panduan lengkap: [landing/README.md](landing/README.md).
+
 ## 9. Placeholder yang HARUS diganti sebelum rilis publik
 - `homepage` di `package.json` (`https://example.com/dudu-ai`) dan `linux.maintainer` di `electron-builder.yml` (`Dudu AI <dudu-ai@example.com>`): dibutuhkan metadata `.deb`; nilainya bukan kontak sebenarnya.
 - `build/icon.svg`/`icon.png`: dibuat dari maskot placeholder di `src/components/ui.tsx` (yang sendiri menyatakan bukan aset resmi). Ganti dengan logo final lalu jalankan `npm run icon`.

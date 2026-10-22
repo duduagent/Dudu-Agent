@@ -3,6 +3,38 @@
 Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Versi memakai SemVer.
 Status fitur memakai kosakata yang jujur: **Implemented** · **Tested** · **Partially implemented** · **Mock / simulation** · **Planned** · **Blocked**.
 
+## [Unreleased] — Landing Page Publik v1
+
+> Ini **tidak** mengubah aplikasi desktop: versi paket tetap `0.6.4`, tidak ada artefak rilis baru, dan
+> `landing/` **tidak** ikut ke paket desktop (terverifikasi: 0 entri `landing/` di dalam `app.asar`).
+> Belum ada tag, push, atau release.
+
+### Added
+- **Dudu Public Landing Page v1** (`landing/`) — situs pemasaran statis terpisah dari aplikasi internal:
+  hero, demonstrasi dengan **screenshot nyata** dari build lokal, tiga kanal produk dengan status
+  jujur (Web App *self-hosted* · Desktop **Windows tersedia** · **Linux parsial** · **macOS & mobile belum terbit**),
+  cara kerja enam tahap (goal → plan → persetujuan → eksekusi → verifikasi → artefak), lima use case,
+  penjelasan keamanan **beserta batasnya** (audit bukan tamper-proof; keamanan belum tersertifikasi),
+  FAQ, formulir waiting list, dan footer. Tanpa analytics, tanpa cookie pihak ketiga, tanpa dependensi baru.
+- **Endpoint waiting list** `POST /api/waiting-list` (`server/waiting-list.mjs`) — data disimpan di folder data
+  instance (mode 0600 di POSIX), validasi ketat di server, idempoten per alamat email, dan **tidak ada
+  endpoint pembacaan daftar** (alamat email tidak pernah bocor lewat API).
+- Perkakas: `npm run landing:dev` (pratinjau statis), `npm run landing:check` /
+  `npm run landing:check:strict` (tautan, aset, status kanal, klaim tanpa penyangkal, kontras, blocker
+  publikasi), dan `scripts/landing-audit.cjs` (audit responsif Electron).
+- Tes: `tests/landing-page.test.mjs` (18 tes) + `tests/waiting-list.test.mjs` (10 tes).
+
+### Known blockers (belum boleh dipublikasikan)
+- **Domain resmi belum ditetapkan** → `sitemap.xml`/`robots.txt` memakai placeholder
+  `REPLACE-WITH-OFFICIAL-DOMAIN` dan belum ada canonical URL. `landing:check:strict` gagal selama itu belum diganti.
+- **Belum ada hosting**; landing page berupa berkas statis yang perlu diunggah ke host.
+- **Tidak ada CTA "Try Web App" ke URL publik** karena belum ada instance terkelola; hanya mode self-hosted
+  (dijelaskan di halaman, bukan dikarang sebagai tautan).
+- **Tidak ada tombol unduh langsung** ke berkas rilis (belum ada mirror publik); halaman memuat tabel artefak
+  terverifikasi beserta statusnya.
+
+---
+
 ## [0.6.4] — 2026-10-22 — RILIS
 
 > Cakupan: **Reliability, Audit Visibility, dan Security Validation**. Tidak ada perubahan kontrak yang
