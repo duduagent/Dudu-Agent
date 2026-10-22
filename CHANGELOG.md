@@ -3,6 +3,60 @@
 Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Versi memakai SemVer.
 Status fitur memakai kosakata yang jujur: **Implemented** · **Tested** · **Partially implemented** · **Mock / simulation** · **Planned** · **Blocked**.
 
+## [0.6.4] — 2026-10-22 — RILIS
+
+> Cakupan: **Reliability, Audit Visibility, dan Security Validation**. Tidak ada perubahan kontrak yang
+> merusak: endpoint audit lama masih ada (tambah filter & halaman), field baru pada event bersifat opsional,
+> dan store misi tidak berubah format (tanpa migrasi).
+> Rincian skema event, integritas jejak, izin, approval, dan batas yang masih terbuka: [SECURITY_NOTES.md](SECURITY_NOTES.md).
+
+### Added
+- **Jejak audit di UI** (`src/components/AuditTrail.tsx`): panel "Jejak Audit" di **Misi & Tugas → detail misi**
+  (jejak misi itu) dan di **Pusat Eksekusi** (jejak global dengan **filter misi**). Menampilkan waktu, jenis
+  tindakan, aktor/komponen, hasil, dan referensi langkah/eksekusi/kapabilitas/korelasi. Hasil `denied`,
+  `failed`, `succeeded`, dan `unverified` memakai badge berbeda. Filter: misi, jenis event, hasil, rentang waktu.
+  Pagination 25 event per muat + "Muat lebih banyak". Kondisi kosong/loading/error ditangani; event lama
+  diberi label "sebelum v0.6.3".
+  - Aturan tampilan: `detail` **tidak** ditampilkan mentah — hanya kunci **daftar putih** dengan nilai
+    dipotong; `args`/`result`/`output` tidak pernah dirender; aktor `system`/`local` ditampilkan apa adanya
+    (tidak diklaim sebagai identitas manusia); data diambil dari **API server**, bukan berkas langsung.
+- **Kontrak API audit** (dokumentasi di SECURITY_NOTES §1.5): `GET /api/capability-registry/audit` kini mendukung
+  `limit`/`offset` (halaman, terbaru lebih dulu) + `outcome`/`actor`/`since`/`until`; baru
+  `GET /api/missions/:id/audit` (jejak per misi) dan `GET /api/audit/integrity` (verifikasi rantai + daftar berkas).
+  Respons: `{ events, count, total, limit, offset, hasMore, file }`.
+- **Integritas jejak** (`server/execution-audit.mjs`): **rantai hash** per event (`prevHash` + `hash`, SHA-256 atas
+  bentuk kanonik event) dengan verifikasi `ok`/`brokenAt`/`reason`; **rotasi** berbasis ukuran (8 MiB, 3 arsip)
+  dengan batas retensi; `hashEvent`/`canonicalJson`/`normalizeEvent` diekspor untuk pengujian.
+- **Validasi artefak rilis**: `scripts/verify-release.mjs` + `npm run verify:release` — memeriksa ASAR hasil
+  build secara nyata: berkas runtime wajib (termasuk modul audit & izin), tidak ada tes/src/.env/source-map/skrip
+  yang bocor, hanya dependensi produksi, fitur rilis benar-benar ada, dan tidak ada kunci API literal.
+  Artefak yang tidak dibangun dilaporkan "TIDAK DIBANGUN" (exit 5), tidak dikarang.
+- **Audit dependensi produksi**: `npm run audit:prod` (`npm audit --omit=dev`) — dijalankan di CI.
+- Tes regresi baru: `tests/audit-trail.test.mjs` (29 tes) + `tests/audit-trail-ui.test.tsx` (9 tes).
+
+### Fixed
+- **Approval dicatat setelah permission diberikan** → bila audit wajib gagal, permission sempat diberikan tanpa
+  jejak. Kini event approval ditulis **lebih dulu**: audit gagal ⇒ **permission tidak diberikan** (fail-closed).
+- **Field `error` ditulis mentah** ke jejak audit (bisa memuat kunci/token dari pesan provider) → kini diredaksi
+  saat menulis; dan **seluruh event disanitasi lagi saat dibaca** (termasuk event legacy).
+- **Dua instance audit menulis ke berkas yang sama** (misi + registry) → rantai hash jadi tidak konsisten;
+  kini `createApi()` memakai **satu** instance bersama.
+- **Idempotency key ditandai sebelum penulisan** → event bisa hilang diam-diam bila penulisan gagal; kini
+  ditandai **setelah** penulisan berhasil.
+- **`GET /api/missions/:id/audit` memfilter `correlationId` secara default** → event tanpa korelasi (mis. event
+  capability lama) hilang dari jejak misi; filter tersebut kini hanya berlaku bila diminta.
+
+### Verified
+- `npm run verify` = **PASS** (typecheck 0 error · `check:imports` OK 13 modul ESM native · **307 tes / 26 file** · build produksi).
+- `npm run verify:ui` = LOLOS (responsif 16×6 **0 temuan** · kontras ter-render **0 temuan**).
+- `npm run smoke:provider` = 8 passed · 0 failed · 3 unverified (butuh kredensial asli).
+- `npm audit --omit=dev` = **0 kerentanan** (exit 0). `npm audit` penuh = 14 kerentanan **dev toolchain** saja
+  (tidak ikut ke paket; perbaikannya breaking → tidak diperbaiki otomatis, didokumentasikan).
+- `npm run verify:release` terhadap artefak 0.6.3 = **menangkap 6 kegagalan** (fitur v0.6.4 belum ada di artefak
+  lama) → skrip validasi terbukti punya gigi, bukan sekadar lulus.
+
+---
+
 ## [0.6.3] — 2026-10-22 — RILIS
 
 > Cakupan: **Unified Execution Audit** + **Granular Permission Model** + **Approval terikat tindakan**. Tidak ada perubahan kontrak API yang merusak konsumen lama: endpoint & route baru bersifat aditif, dan **store misi tidak berubah format** (field baru opsional → tidak ada migrasi).

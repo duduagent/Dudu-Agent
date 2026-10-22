@@ -217,6 +217,47 @@ export interface Mission {
   log: Array<{ at: number; level: string; msg: string }>
 }
 
+/**
+ * Satu event Unified Execution Audit (v0.6.4).
+ * Field yang tidak diketahui bernilai null — TIDAK dikarang. Event legacy (sebelum v0.6.3)
+ * tidak punya eventType/outcome → `legacy: true`.
+ */
+export interface AuditEvent {
+  eventId: string | null
+  at: string | null
+  ts: number | null
+  eventType: string | null
+  missionId: string | null
+  taskId: string | null
+  execId: string | null
+  capabilityId: string | null
+  actor: string | null
+  outcome: string | null
+  correlationId: string | null
+  /** Rantai hash: prevHash = hash event sebelumnya, hash = hash event ini. */
+  prevHash?: string | null
+  hash?: string | null
+  /** Ringkasan aman (sudah diredaksi server). */
+  detail?: Record<string, unknown> | null
+  /** Event lama (bentuk sebelum v0.6.3): field legacy boleh ada. */
+  legacy?: boolean
+  action?: string
+  error?: string | null
+}
+export interface AuditPage {
+  events: AuditEvent[]
+  count: number
+  total: number
+  limit: number
+  offset: number
+  hasMore: boolean
+  file: string
+}
+export interface AuditIntegrity {
+  integrity: { ok: boolean; checked: number; legacy: number; brokenAt: number | null; reason: string | null }
+  files: Array<{ name: string; size: number; active: boolean }>
+}
+
 async function parseError(res: Response): Promise<ApiError> {
   let code = 'http_error', message = `Permintaan gagal (${res.status}).`
   try { const b = (await res.json()) as { error?: string; message?: string; details?: string }; code = b.error ?? code; message = b.message ?? b.details ?? message } catch { /* bukan JSON */ }
@@ -454,13 +495,31 @@ export const api = {
   capabilityGet: async (id: string) => (await apiJson<{ capability: CapabilityEntry }>('GET', `/api/capability-registry/${encodeURIComponent(id)}`)).capability,
   capabilityValidate: async (id: string) => apiJson<{ capability: CapabilityEntry; ok: boolean; verdict: string; checks: CapabilityValidationCheck[]; error: string | null; at: number }>('POST', `/api/capability-registry/${encodeURIComponent(id)}/validate`, {}),
   capabilityRun: async (id: string, args: Record<string, unknown> = {}, confirm = false) => apiJson<CapabilityRunResult>('POST', `/api/capability-registry/${encodeURIComponent(id)}/run`, { args, confirm }),
-  capabilityAudit: async (limit = 50, filters: { missionId?: string | null; eventType?: string | null; correlationId?: string | null } = {}) => {
+  capabilityAudit: async (limit = 50, filters: { missionId?: string | null; eventType?: string | null; outcome?: string | null; actor?: string | null; correlationId?: string | null; offset?: number | null; since?: number | null; until?: number | null } = {}) => {
     const q = new URLSearchParams({ limit: String(limit) })
     if (filters.missionId) q.set('missionId', filters.missionId)
     if (filters.eventType) q.set('eventType', filters.eventType)
+    if (filters.outcome) q.set('outcome', filters.outcome)
+    if (filters.actor) q.set('actor', filters.actor)
     if (filters.correlationId) q.set('correlationId', filters.correlationId)
-    return apiJson<{ events: Array<Record<string, unknown>>; count: number; file: string }>('GET', `/api/capability-registry/audit?${q.toString()}`)
+    if (filters.offset) q.set('offset', String(filters.offset))
+    if (filters.since) q.set('since', String(filters.since))
+    if (filters.until) q.set('until', String(filters.until))
+    return apiJson<AuditPage>('GET', `/api/capability-registry/audit?${q.toString()}`)
   },
+
+  /* ---------- Unified Execution Audit (v0.6.4) ---------- */
+  /** Jejak audit satu misi (halaman + filter). Data sudah disanitasi server (redaksi). */
+  missionAudit: async (id: string, filters: { limit?: number; offset?: number; eventType?: string | null; outcome?: string | null; since?: number | null; until?: number | null } = {}) => {
+    const q = new URLSearchParams({ limit: String(filters.limit ?? 50), offset: String(filters.offset ?? 0) })
+    if (filters.eventType) q.set('eventType', filters.eventType)
+    if (filters.outcome) q.set('outcome', filters.outcome)
+    if (filters.since) q.set('since', String(filters.since))
+    if (filters.until) q.set('until', String(filters.until))
+    return apiJson<AuditPage>('GET', `/api/missions/${encodeURIComponent(id)}/audit?${q.toString()}`)
+  },
+  /** Integritas jejak audit: verifikasi rantai hash + daftar berkas (aktif + rotasi). */
+  auditIntegrity: async () => apiJson<AuditIntegrity>('GET', '/api/audit/integrity'),
 
   /* ---------- input data → Knowledge Base (v0.4.0) ---------- */
   kbAddText: async (title: string, text: string) =>

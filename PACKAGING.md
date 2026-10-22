@@ -9,6 +9,13 @@ Rilis sebelumnya yang tetap tersedia di `release/`: 0.5.0, 0.6.0, 0.6.1, 0.6.2 (
 > Yang berubah: isi aplikasi (audit terpadu, gerbang izin, approval terikat tindakan), pemeriksaan tambahan
 > `npm run check:imports` yang ikut `npm run verify`, dan dua dokumen baru (`SECURITY_NOTES.md`, `READINESS_AUDIT.md`)
 > yang ikut dikemas.
+>
+> **v0.6.4** menambahkan dua gerbang validasi yang berjalan di CI:
+> - `npm run verify:release` — memeriksa `app.asar` hasil build: berkas runtime wajib (termasuk modul audit &
+>   izin), tidak ada tes/`src`/`.env`/source-map/skrip yang bocor ke paket, hanya dependensi produksi
+>   (`fflate`, `unpdf`), fitur rilis benar-benar ada di dalam paket, dan tidak ada kunci API literal.
+>   Artefak yang tidak dibangun dilaporkan **"TIDAK DIBANGUN"** (exit 5) — tidak dikarang sebagai lulus.
+> - `npm run audit:prod` — `npm audit --omit=dev`, yaitu **dependensi yang benar-benar ikut ke paket**.
 
 ## 1. Target dan status (v0.6.0) — apa yang benar-benar dibangun & diuji
 
@@ -96,7 +103,37 @@ x86_64. `.deb` memakai dependensi standar Electron (GTK3, NSS, libnotify, XDG ut
 
 ⚠️ **Portabel Linux — izin eksekusi sudah benar sejak 0.6.2.** Saat arsip dibuat dari Windows, bit POSIX tidak bisa disimpan oleh `bsdtar`, sehingga pengguna lama harus `chmod +x dudu-ai` secara manual. `scripts/tar-portable.mjs` menulis header ustar sendiri dengan mode **0755** untuk `dudu-ai`, `chrome-sandbox`, dan `chrome_crashpad_handler` (0644 untuk berkas lain). Verifikasi: `tar -tvf Dudu-AI-0.6.3-linux-x64-portable.tar.gz` → `-rwxr-xr-x … dudu-ai` (pada 0.6.3: 20 entri, 3 berkas mode 0755). Paket ini **tetap belum dijalankan di Linux** — gunakan `.deb`/AppImage dari CI untuk rilis resmi.
 
-## 8.1 Artefak rilis v0.6.3 (dibangun & diverifikasi di mesin ini)
+## 8.1 Artefak rilis v0.6.4 (dibangun & diverifikasi di mesin ini)
+
+| Artefak | Ukuran | SHA-256 (potongan) | Dibangun | Dijalankan/diuji |
+|---|---|---|---|---|
+| `Dudu-AI-Setup-0.6.4-x64.exe` | 103.433.913 B | `3CD5A013…C5B9` | ✅ | ✅ dipasang senyap + upgrade 0.5.0 → 0.6.4 LOLUS, smoke 51/51 |
+| `Dudu-AI-Portable-0.6.4-x64.exe` | 103.187.356 B | `270A72AD…C3FF` | ✅ | ✅ smoke 51/51 (biner unpacked & asar terverifikasi) |
+| `Dudu-AI-0.6.4-Windows-x64.zip` | 206.897.963 B | `BFBB7BC3…1D37` | ✅ | ✅ isi ZIP diperiksa |
+| `Dudu-AI-0.6.4-Windows-x64-Setup.zip` | 103.598.457 B | `8B2AF9BF…CB14` | ✅ | ✅ isi ZIP diperiksa |
+| `Dudu-AI-0.6.4-linux-x64-portable.tar.gz` | 122.834.045 B | `4584082D…130B` | ✅ (dir + tar 0755) | ❌ **belum dijalankan di Linux** |
+| `Dudu-AI-0.6.4-Linux-x64.zip` | 122.541.583 B | `9566A48E…35DD` | ✅ | ❌ **belum dijalankan di Linux** |
+| `Dudu-AI-0.6.4-source.zip` | 704.010 B | `DEF4B8D5…C413` | ✅ | ❌ belum dibangun ulang dari paket ini |
+
+Daftar hash lengkap: `release/SHA256SUMS-0.6.4.txt` (+ per-platform: `SHA256SUMS-0.6.4-{Windows,Linux,source}.txt`).
+
+**Tidak dikarang:** `.deb` dan `.AppImage` **tidak dibangun** di mesin ini (`fpm`/symlink tidak tersedia di
+Windows) — `package-release.mjs linux` melaporkannya sebagai "TIDAK DIBANGUN" (exit 5) dan **tidak**
+memasukkannya ke ZIP/daftar hash. Tidak ada artefak macOS sama sekali.
+
+**Validasi artefak 0.6.4 (nyata):**
+- `npm run verify:release` → **SEMUA PEMERIKSAAN LULUS** untuk `app.asar` Windows **dan** Linux; macOS
+  dilaporkan "TIDAK DIBANGUN". Yang diperiksa antara lain: `server/execution-audit.mjs` +
+  `server/permissions.mjs` **ada** di paket, tidak ada `tests/`, `src/`, `.env`, `*.map`, `scripts/` di dalam
+  paket, hanya `fflate` + `unpdf` yang ikut, dan tidak ada kunci API literal.
+- `node scripts/verify-asar.mjs release/win-unpacked/resources/app.asar 0.6.4` → SEMUA PEMERIKSAAN LULUS.
+- Bukti bahwa skrip validasi **punya gigi**: dijalankan terhadap artefak **0.6.3** → **6 kegagalan** (fitur
+  v0.6.4 memang belum ada di paket lama), bukan lulus diam-diam.
+
+**Artefak rilis historis tidak diubah** (dicek ulang pada sesi 0.6.4): hash 0.5.0 / 0.6.0 / 0.6.1 / 0.6.2 /
+0.6.3 tetap sama dengan yang tercatat pada masanya.
+
+### Pemeriksaan tambahan pada v0.6.3
 
 | Artefak | Ukuran | SHA-256 (potongan) | Dibangun | Dijalankan/diuji |
 |---|---|---|---|---|

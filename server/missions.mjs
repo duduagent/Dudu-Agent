@@ -233,14 +233,17 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
       })
       return rec
     }
-    rec.status = 'approved'; rec.decidedAt = now(); rec.actor = actor
-    rec.expiresAt = now() + Math.max(1000, Number(ttlMs) || 0)
-    log(m, 'info', `Persetujuan diberikan: ${rec.capabilityId} (${rec.operation}).`)
-    await persist(m)
+    // Audit WAJIB DULU:permission tidak boleh diberikan bila jejak audit tak dapat ditulis
+    // (fail-closed). Kalau audit gagal, approval TIDAK berubah status dan tidak disimpan.
+    const expiresAt = now() + Math.max(1000, Number(ttlMs) || 0)
     await emitCritical(EVENT_TYPES.MISSION_APPROVED, {
       missionId: m.id, capabilityId: rec.capabilityId, actor, outcome: 'succeeded', correlationId: m.correlationId,
-      detail: { approvalId: rec.id, operation: rec.operation, paramsDigest: rec.paramsDigest, expiresAt: rec.expiresAt },
+      detail: { approvalId: rec.id, operation: rec.operation, paramsDigest: rec.paramsDigest, expiresAt },
     })
+    rec.status = 'approved'; rec.decidedAt = now(); rec.actor = actor
+    rec.expiresAt = expiresAt
+    log(m, 'info', `Persetujuan diberikan: ${rec.capabilityId} (${rec.operation}).`)
+    await persist(m)
     return rec
   }
 
@@ -286,15 +289,16 @@ export function createMissionService({ dataDir, files, fs = fsp, now = () => Dat
     if (m.state !== 'draft') throw new MissionError(409, 'bad_state', `Misi berstatus ${m.state}; hanya Draft yang dapat disetujui.`)
     // Approval terikat pada rencana: digest menggabungkan langkah, alat, dan file sumber.
     const digest = planDigest(m)
-    m.approval = { status: 'approved', at: now(), scope: { kind: 'mission-plan', digest, expiresAt: null } }
-    m.actor = actor
-    log(m, 'info', 'Pengguna menyetujui eksekusi.')
-    await persist(m)
-    // Event WAJIB: approval adalah kontrol keamanan → eksekusi tidak jalan bila audit gagal.
+    // Audit WAJIB DULU: approval adalah kontrol keamanan. Bila audit tidak dapat ditulis,
+    // permission TIDAK diberikan sama sekali (fail-closed) — bukan "disetujui tapi tak tercatat".
     await emitCritical(EVENT_TYPES.MISSION_APPROVED, {
       missionId: m.id, actor, outcome: 'succeeded', correlationId: m.correlationId,
       detail: { scope: 'mission-plan', digest },
     })
+    m.approval = { status: 'approved', at: now(), scope: { kind: 'mission-plan', digest, expiresAt: null } }
+    m.actor = actor
+    log(m, 'info', 'Pengguna menyetujui eksekusi.')
+    await persist(m)
     return execute(m)
   }
 

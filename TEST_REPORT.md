@@ -316,6 +316,110 @@ Hash lengkap (7 artefak: 2 exe Windows, 2 ZIP Windows, tarball + ZIP Linux, ZIP 
 
 ---
 
+---
+
+## 16. v0.6.4 — Reliability, Audit Visibility, Security Validation
+
+### 16.1 Temuan awal (audit repositori aktual, bukan dari laporan)
+
+| # | Temuan | Dampak |
+|---|---|---|
+| 1 | Jejak audit tidak pernah tampil di UI; endpoint baca tanpa filter hasil/waktu/paginasi | Aktivitas tidak dapat ditelusuri pengguna |
+| 2 | Field `error` ditulis mentah ke jejak (7 titik di registry) | Pesan provider bisa memuat kunci/token ke berkas audit |
+| 3 | Event legacy dibaca apa adanya (tanpa sanitasi) | Data lama yang belum diredaksi bisa bocor ke UI |
+| 4 | Dua instance audit menulis ke berkas yang sama (misi + registry) | Dedupe & rantai hash tidak konsisten |
+| 5 | Approval dicatat **setelah** permission diberikan | Permission sempat diberikan tanpa jejak bila audit gagal |
+| 6 | `idempotencyKey` ditandai sebelum penulisan | Event bisa hilang diam-diam bila penulisan gagal |
+| 7 | Jejak tanpa integritas (bisa disunting) & tanpa rotasi (tumbuh tanpa batas) | Tidak ada deteksi perubahan; berkas membengkak |
+| 8 | `read()` memuat seluruh berkas ke memori | Beban memori naik seiring log |
+| 9 | Endpoint audit per-misi memfilter `correlationId` → event tanpa korelasi hilang | Jejak misi tidak lengkap |
+| 10 | Tidak ada pemeriksaan dependensi produksi / validasi isi paket otomatis | Kerentanan & paket rusak bisa lolos ke rilis |
+
+### 16.2 Yang diimplementasikan (ringkas)
+
+- **UI jejak audit** (`src/components/AuditTrail.tsx`) di Misi & Tugas (per misi) & Pusat Eksekusi (global +
+  filter misi): waktu, jenis, aktor, hasil, referensi eksekusi; badge `denied`/`failed`/`succeeded`/`unverified`
+  berbeda; filter misi/jenis/hasil/waktu; pagination 25 + "Muat lebih banyak"; `detail` hanya dari **daftar
+  putih** (`args`/`result`/`output` tidak pernah dirender); event lama dilabeli "sebelum v0.6.3".
+- **Kontrak API**: `limit`/`offset`/`outcome`/`actor`/`since`/`until` pada audit global; baru
+  `GET /api/missions/:id/audit` dan `GET /api/audit/integrity`; **tanpa** endpoint mutasi jejak.
+- **Integritas**: rantai hash (`prevHash`/`hash`) + verifikasi + rotasi 8 MiB/3 arsip; satu writer audit.
+- **Fail-closed**: approval dicatat **sebelum** permission diberikan.
+- **Redaksi dua arah**: tulis (`args`/`error`/`detail`) + baca (termasuk legacy).
+- **Validasi rilis**: `npm run verify:release` (ASAR) & `npm run audit:prod` (dependensi produksi) → keduanya di CI.
+
+### 16.3 Perintah nyata & hasilnya
+
+| Perintah | Exit | Hasil |
+|---|---|---|
+| `npm run typecheck` | 0 | 0 error |
+| `npm run check:imports` | 0 | `IMPORT_OK` — 13 modul server ESM native Node |
+| `npm test` | 0 | **307 tes / 26 file, 307 lulus** (dari 269/24 → +38) |
+| `npm run build` | 0 | bundle sukses |
+| `npm run verify` | **0** | typecheck + check:imports + tes + build |
+| `npm run verify:ui` | **0** | responsif 16×6 **0 temuan** · kontras ter-render **0 temuan** |
+| `npm run smoke:provider` | **0** | 8 passed · 0 failed · 3 unverified |
+| `npm audit --omit=dev` | **0** | **0 kerentanan** |
+| `npm audit` | 1 | 14 kerentanan (11 moderate, 1 high, 2 critical) — **dev toolchain saja** |
+| `npm run verify:release` (artefak 0.6.3) | 1 | 6 kegagalan → skrip terbukti mendeteksi paket lama yang belum punya fitur rilis |
+| `npm run verify:release` (artefak 0.6.4) | **0** | SEMUA PEMERIKSAAN LULUS (Windows + Linux asar; macOS "TIDAK DIBANGUN") |
+| `node scripts/verify-asar.mjs` (asar 0.6.4) | 0 | SEMUA PEMERIKSAAN LULUS, tanpa kunci API literal |
+| `node scripts/smoke-desktop.mjs` (biner 0.6.4) | 0 | **51/51** |
+| `node scripts/upgrade-check.cjs` (0.5.0 → 0.6.4) | 0 | LOLUS (data utuh, smoke 51/51, uninstall aman) |
+| `tar -tvf …portable.tar.gz` | 0 | `dudu-ai` mode **0755** (3 berkas executable) |
+
+### 16.4 Tes yang ditambahkan (+38)
+
+`tests/audit-trail.test.mjs` (29 tes, server):
+- Kontrak API: skema unified, urutan terbaru-lebih-dulu, `offset` tanpa duplikat, `offset` melebihi jumlah event
+  → halaman kosong, filter (misi/jenis/hasil/aktor/since/until), endpoint per-misi (400/404), tidak ada
+  endpoint mutasi jejak, mutasi tetap butuh header anti-CSRF.
+- Redaksi dua arah: event legacy dengan `args`/`error` mentah disanitasi saat dibaca; `error` ditulis teredaksi;
+  isi file pengguna tidak pernah masuk jejak.
+- Kondisi batas: berkas kosong, baris rusak dilewati, event lama dikembalikan apa adanya.
+- Integritas: rantai utuh, perubahan isi terdeteksi, event terhapus terdeteksi, rotasi + batas generasi,
+  idempotensi (duplikat dilewati; penulisan gagal **tidak** menandai kunci).
+- Regresi permission/approval: `process:exec` tetap nonaktif; permission ditolak **sebelum** tindakan berjalan
+  (tanpa request keluar); `permission.denied` tanpa kebocoran; approval terikat target; approval的消费
+  (consumed) tidak bisa dipakai ulang; kegagalan audit kritis **tidak dapat dilewati** lewat jalur mana pun
+  (registry, approval misi, approval tindakan); tidak ada jalur eksekusi alternatif melewati gerbang izin.
+
+`tests/audit-trail-ui.test.tsx` (9 tes, UI + server nyata):
+- Event ditampilkan lengkap (waktu, jenis, aktor, hasil, referensi exec); filter jenis & hasil; ringkasan
+  jumlah event; kegagalan API jujur + "Coba lagi"; event lama berlabel jelas; filter misi pada jejak global;
+  tidak ada `args`/`result`/isi file di DOM; badge `denied`/`failed`/`succeeded`/`unverified` berbeda.
+
+### 16.5 `npm audit` — hasil & keputusan
+
+- `npm audit --omit=dev` → **0 kerentanan** (exit 0). Dependensi produksi yang ikut paket hanya `fflate` +
+  `unpdf` (terverifikasi dari isi `app.asar`).
+- `npm audit` penuh → **14 kerentanan**, seluruhnya di toolchain pengembangan: `@vitest/mocker`, `tinypool`,
+  `esbuild`, `vite`/`vite-node`, `sprintf-js` (lewat `roarr` → `global-agent` → `@electron/get` →
+  `electron-builder`).
+- **Tidak diperbaiki otomatis**: perbaikannya menuntut vitest 2→5, vite 5→8, atau downgrade electron-builder —
+  perubahan mayor yang belum diuji dan berisiko merusak 307 tes yang sudah lulus. Yang dilakukan sebagai
+  gantinya: `npm run audit:prod` menjaga dependensi produksi tetap bersih di CI, dan temuan dicatat di
+  SECURITY_NOTES §7.
+
+### 16.6 REAL / MOCK / UNVERIFIED
+
+- **REAL (terverifikasi di lingkungan ini)**: seluruh event audit & redaksinya, integritas rantai hash, rotasi,
+  fail-closed approval, UI jejak audit, aplikasi terpaket 51/51, isi ASAR, upgrade 0.5.0 → 0.6.4, audit
+  dependensi produksi, dan 307 tes.
+- **MOCK**: `smoke:provider` memakai mock lokal 127.0.0.1 untuk jalur error — bukan integrasi nyata.
+- **UNVERIFIED**: provider live (chat/vision/STT), runtime Linux & macOS, eksekusi CI GitHub, serta
+  `.deb`/AppImage (butuh Linux) dan artefak macOS (butuh macOS).
+
+### 16.7 Risiko yang masih terbuka
+
+1. Rantai hash **deteksi, bukan mencegah** penulisan ulang menyeluruh; tanpa tanda tangan/pengelolaan kunci.
+2. 14 kerentanan dev toolchain belum diperbaiki (butuh upgrade mayor) — tidak masuk paket pengguna.
+3. Izin belum per-peran/per-pengguna; `process:exec` tetap nonaktif; plugin masih in-process tanpa sandbox.
+4. Jejak audit belum tampil di CLI; rotasi membatasi retensi (3 arsip).
+5. Runtime Linux/macOS & CI belum pernah dieksekusi di lingkungan ini.
+
+---
+
 ## 15. v0.6.3 — Unified Execution Audit, Granular Permission, Approval Terikat Tindakan
 
 ### 15.1 Temuan awal (audit repositori aktual)

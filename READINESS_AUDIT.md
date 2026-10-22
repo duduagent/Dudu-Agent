@@ -1,6 +1,6 @@
-# Laporan Audit Kesiapan Rilis — Dudu AI Agent OS v0.6.3
+# Laporan Audit Kesiapan Rilis — Dudu AI Agent OS v0.6.4
 
-Tanggal: 22 Oktober 2026 · Ruang lingkup: Phase 1–10 (audit implementasi, bukti E2E, failure recovery, validasi provider, kesiapan Linux/macOS, CI, keamanan, perbaikan, laporan) **+ Fase Unified Execution Audit & Granular Permission (v0.6.3)**.
+Tanggal: 22 Oktober 2026 · Ruang lingkup: Phase 1–10 (audit implementasi, bukti E2E, failure recovery, validasi provider, kesiapan Linux/macOS, CI, keamanan, perbaikan, laporan) **+ Fase Unified Execution Audit & Granular Permission (v0.6.3)** **+ Fase Reliability, Audit Visibility & Security Validation (v0.6.4)**.
 
 Semua angka di bawah **dari eksekusi nyata pada lingkungan ini** (Windows 10 x64, Node 24.22, Electron 44.7.2). Yang tidak dijalankan ditandai eksplisit.
 
@@ -14,6 +14,7 @@ Semua angka di bawah **dari eksekusi nyata pada lingkungan ini** (Windows 10 x64
 - **Mesin eksekusi misi terbukti nyata** (12 tahap E2E dengan artefak di disk, `execId`, evidence kriteria, dan log), **bukan** klaim.
 - **Tidak ada blocker P0 pada kode.** Dua celah cakupan tes ditutup sesi ini (kegagalan menulis artefak; provider HTTP 5xx) dan kosakata status uji provider diperjelas (passed/failed/unverified/skipped/blocked).
 - **Fase v0.6.3 — Unified Execution Audit & Granular Permission: TERBUKTI via tes.** Jejak audit terpadu untuk misi + kapabilitas (19 jenis event, skema seragam), 8 izin berbasis operasi nyata yang ditegakkan **di batas eksekusi**, dan approval yang **terikat tindakan** (kapabilitas + operasi + target + digest parameter + masa berlaku + sekali pakai). 17 tes regresi baru.
+- **Fase v0.6.4 — Reliability, Audit Visibility, Security Validation: TERBUKTI via tes.** Jejak audit kini **dapat ditelusuri di UI** (filter misi/jenis/hasil/waktu + pagination, `detail` hanya dari daftar putih), jejak punya **rantai hash** + **rotasi**, redaksi berlaku dua arah, approval dicatat **sebelum** permission diberikan (fail-closed), `npm audit --omit=dev` = **0 kerentanan**, dan `npm run verify:release` memvalidasi isi paket ASAR secara nyata. 38 tes regresi baru.
 - **Celah "hijau palsu" ditemukan & ditutup:** `redact` terdeklarasi ganda membuat aplikasi **terpaket gagal start** sementara 269 tes tetap hijau (vitest/esbuild mentoleransi linking ESM yang Node/Electron tolak). Diperbaiki + ditutup oleh `npm run check:imports` (ESM native Node) yang kini ikut `npm run verify`.
 - **Kesiapan lintas platform BELUM terbentuk:** runtime Linux belum pernah dijalankan, artefak macOS belum dibuat, CI belum pernah dieksekusi. Keigaian ini adalah batas lingkungan, bukan kode.
 - **Keputusan: READY WITH LIMITATIONS** — siap untuk rilis Windows yang sudah diverifikasi; belum siap sebagai rilis lintas platform.
@@ -194,6 +195,26 @@ Misi nyata: "Analisis data penjualan dan tulis laporan" atas `penjualan.csv` (4 
 
 ---
 
+### v0.6.4 (fase Reliability, Audit Visibility, Security Validation)
+
+| Perintah | Exit | Hasil |
+|---|---|---|
+| `npm run typecheck` | 0 | 0 error |
+| `npm run check:imports` | 0 | `IMPORT_OK` — 13 modul server dimuat ESM native Node |
+| `npm test` | 0 | **307 tes / 26 file, 307 lulus** (dari 269/24; +38 tes regresi) |
+| `npm run build` | 0 | bundle sukses |
+| `npm run verify` | **0** | typecheck + check:imports + tes + build |
+| `npm run verify:ui` | **0** | responsif 16×6: 0 temuan · kontras ter-render: 0 temuan |
+| `npm run smoke:provider` | **0** | 8 passed · 0 failed · 3 unverified |
+| `npm audit --omit=dev` | **0** | **0 kerentanan** (dependensi produksi) |
+| `npm audit` | 1 | 14 kerentanan — **dev toolchain saja** (tidak ikut paket) |
+| `npm run verify:release` (artefak 0.6.3) | 1 | 6 kegagalan → skrip terbukti mendeteksi paket lama |
+| `npm run verify:release` (artefak 0.6.4) | **0** | SEMUA LULUS (Windows + Linux asar; macOS "TIDAK DIBANGUN") |
+| `node scripts/verify-asar.mjs` (asar 0.6.4) | 0 | SEMUA PEMERIKSAAN LULUS, tanpa kunci API literal |
+| `node scripts/smoke-desktop.mjs` (biner 0.6.4) | 0 | **51/51** |
+| `node scripts/upgrade-check.cjs` (0.5.0 → 0.6.4) | 0 | LOLUS (data utuh, uninstall aman) |
+| `tar -tvf …tar.gz` | 0 | `dudu-ai` mode 0755 (3 berkas executable) |
+
 ## J. Known limitations
 
 1. **Runtime Linux & macOS belum pernah dijalankan** — semua artefak non-Windows belum diuji eksekusi.
@@ -204,10 +225,15 @@ Misi nyata: "Analisis data penjualan dan tulis laporan" atas `penjualan.csv` (4 
 6. Timeline Pusat Eksekusi masih polling (1–15 s) — belum ada SSE.
 7. Paket belum ditandatangani (Windows & macOS) — SmartScreen/Gatekeeper memperingatkan.
 8. **Jejak audit belum ditandatangani/di-rotasi** — siapa pun yang bisa menulis ke folder data dapat menyunting `capability-audit.jsonl`; retensi belum diatur.
+   **v0.6.4**: sudah ada **rantai hash** (deteksi perubahan isi event) + **rotasi** (8 MiB, 3 arsip) — tetapi
+   rantai **tidak mencegah** penulisan ulang menyeluruh dan tidak ada tanda tangan/pengelolaan kunci.
 9. **Model izin masih level aplikasi** — allowlist berbasis operasi, bukan capability-based OS; belum ada peran/pengguna berbeda; `process:exec` dicadangkan tetapi belum ada adapter yang memakainya.
 10. **Jejak audit misi belum tampil di UI** — API mendukung filter `missionId`/`eventType`/`correlationId`, tetapi belum ada panel tampilan.
+   **v0.6.4**: sudah ada panel "Jejak Audit" (Misi & Tugas + Pusat Eksekusi) dengan filter misi/jenis/hasil/waktu + pagination; yang belum ada adalah **CLI** dan audit approval terpisah (siapa menyetujui apa) di luar event.
 11. **UI/CLI belum menampilkan siapa menyetujui apa** selain event audit (approval tercatat di jejak, bukan di layar ringkas).
 12. **Celah hijau palsu masih mungkin di area lain** — `check:imports` menutup linking ESM server; jalur pemaketan/asar lain belum diaudit otomatis.
+    **v0.6.4**: `npm run verify:release` menutup validasi isi paket (ASAR) + `npm run audit:prod` menutup dependensi produksi.
+13. **14 kerentanan dev toolchain belum diperbaiki** (vitest/tinypool/vite/esbuild, electron-builder → sprintf-js) — perbaikannya breaking (vitest 2→5, vite 5→8); **tidak ikut ke paket** (asar hanya berisi fflate + unpdf).
 
 ---
 
@@ -229,7 +255,8 @@ Misi nyata: "Analisis data penjualan dan tulis laporan" atas `penjualan.csv` (4 
 | Anti-CSRF | Semua request non-GET wajib header `X-Dudu-Client` (403) | `api.mjs:97` |
 | Logging | Tidak memuat isi file/kunci; error dipotong 200–400 karakter | `api.mjs`, `capability-registry.mjs` |
 | Akses artefak | Hanya nama yang tercatat di record misi | tes "artefak hanya dari allowlist" |
-| Dependensi | **0 dependensi baru**; `npm audit` tidak dijalankan di lingkungan ini (tidak ada akses registry) | `package.json` |
+| Dependensi | **0 dependensi baru**; `npm audit --omit=dev` = **0 kerentanan** (v0.6.4); `npm audit` penuh = 14 kerentanan **dev toolchain** (tidak ikut paket; perbaikannya breaking → tidak diperbaiki otomatis, didokumentasikan) | `package.json`, `npm run audit:prod` |
+| Validasi paket | `npm run verify:release` memeriksa ASAR hasil build: berkas wajib, tanpa bocoran, hanya dependensi produksi, fitur rilis ada, tanpa kunci API literal | `scripts/verify-release.mjs`, CI |
 
 ---
 
@@ -375,7 +402,90 @@ Penegakan terjadi di `capability-registry.run()` → `enforce()` → `403 permis
 
 ---
 
-## M. Rekomendasi tahap berikutnya
+## M. Fase v0.6.4 — Reliability, Audit Visibility, Security Validation
+
+### M.1 Temuan awal (audit repositori aktual)
+
+| # | Temuan | Lokasi | Dampak |
+|---|---|---|---|
+| 1 | Jejak audit **tidak pernah tampil di UI**; hanya ada endpoint baca tanpa filter hasil/waktu dan tanpa halaman | `server/api.mjs` (audit route), `src/` (tanpa pemakai `capabilityAudit`) | Aktivitas tidak dapat ditelusuri oleh pengguna |
+| 2 | Field `error` ditulis **mentah** ke jejak audit | `capability-registry.mjs` (7 titik) | Pesan provider bisa memuat kunci/token ke berkas audit |
+| 3 | Event **legacy dibaca apa adanya** (tanpa sanitasi) | `execution-audit.mjs` → `read()` | Data lama yang belum diredaksi bisa bocor ke UI |
+| 4 | **Dua instance audit** menulis ke berkas yang sama (misi + registry) | `api.mjs` → `createMissionService` & `createCapabilityRegistry` | Dedupe & (nanti) rantai hash tidak konsisten |
+| 5 | Approval **dicatat setelah** permission diberikan | `missions.mjs` → `decideApproval`, `approve` | Permission sempat diberikan tanpa jejak bila audit gagal |
+| 6 | `idempotencyKey` ditandai **sebelum** penulisan | `execution-audit.mjs` → `append()` | Event bisa hilang diam-diam bila penulisan gagal |
+| 7 | Jejak **tanpa integritas** (bisa disunting) dan **tanpa rotasi** (tumbuh tanpa batas) | `execution-audit.mjs` | Tidak ada deteksi perubahan; file membengkak |
+| 8 | `read()` memuat **seluruh berkas** ke memori | `execution-audit.mjs` | Beban memori naik seiring log |
+| 9 | Endpoint audit per-misi memfilter `correlationId` → event tanpa korelasi hilang | `api.mjs` (rute misi) | Jejak misi tidak lengkap |
+| 10 | **Tidak ada** pemeriksaan dependensi produksi maupun validasi isi paket otomatis | `package.json`, CI | Kerentanan/artefak rusak bisa lolos ke rilis |
+
+### M.2 Root cause & desain yang dipilih
+
+- **Audit bukan kontrol keamanan** → sekarang ada dua jalur tulis yang jelas: `appendCritical()` (fail-closed)
+  dan `append()` (best-effort), dan **urutan approval dibalik** (catat dulu, baru beri permission).
+- **Jejak tanpa identitas & paginasi** → satu writer + satu instance bersama, bentuk event dinormalisasi
+  (`null` untuk field yang tidak tercatat), pembacaan ber halaman dengan filter, dan **redaksi dua arah**.
+- **Jejak bisa disunting tanpa jejak** → **rantai hash** (`prevHash`/`hash`) + verifikasi + **rotasi** dengan batas
+  retensi. Batasnya jujur: ini **deteksi**, bukan prevention (lihat SECURITY_NOTES §1.4).
+- **Validasi rilis hanya manual** → `npm run verify:release` (ASAR) + `npm run audit:prod` (dependensi
+  produksi), keduanya dijalankan di CI.
+
+### M.3 Yang benar-benar diimplementasikan
+
+| Area | Implementasi | Bukti |
+|---|---|---|
+| UI jejak audit | `src/components/AuditTrail.tsx` (panel) + integrasi di `MissionsPage` & `ExecutionCenterPage`; filter misi/jenis/hasil/waktu; pagination; badge hasil berbeda; label event legacy; daftar putih detail | `tests/audit-trail-ui.test.tsx` (9 tes) |
+| Kontrak API | `limit`/`offset`/`outcome`/`actor`/`since`/`until`; `GET /api/missions/:id/audit`; `GET /api/audit/integrity`; tidak ada endpoint mutasi jejak | `tests/audit-trail.test.mjs` |
+| Redaksi | tulis: `args`/`error`/`detail`; baca: event legacy ikut disanitasi | tes "redaksi dua arah" |
+| Integritas | rantai hash + verifikasi + rotasi 8 MiB/3 arsip + writer tunggal | tes "rantai hash", "rotasi" |
+| Fail-closed | approval dicatat sebelum permission diberikan | tes "kegagalan audit kritis" |
+| Validasi paket | `scripts/verify-release.mjs` → berkas wajib, tanpa bocoran, hanya dependensi produksi, fitur rilis ada | dijalankan terhadap artefak 0.6.3 → **6 kegagalan (terbukti punya gigi)** |
+| Validasi dependensi | `npm run audit:prod` → 0 kerentanan produksi | exit 0 |
+| Permission | **tidak diubah**; `process:exec` tetap nonaktif | tes "process:exec tetap tidak aktif" |
+
+### M.4 Hasil `npm audit` (aktual)
+
+| Cakupan | Exit | Hasil |
+|---|---|---|
+| `npm audit --omit=dev` (produksi, ikut paket) | **0** | **0 kerentanan** |
+| `npm audit` (prod + dev) | 1 | **14 kerentanan** (11 moderate, 1 high, 2 critical) — seluruhnya di dev toolchain (vitest/tinypool/vite/esbuild, electron-builder → sprintf-js) |
+
+Penilaian dampak: **tidak ada** paket rentan itu di `app.asar` (terverifikasi: hanya `fflate` + `unpdf`).
+Perbaikannya menuntut upgrade mayor (vitest 2→5, vite 5→8) atau downgrade electron-builder — berisiko
+merusak suite yang sudah terverifikasi, jadi **tidak** dilakukan otomatis; didokumentasikan di
+SECURITY_NOTES §7.
+
+### M.5 Perintah yang benar-benar dijalankan (v0.6.4)
+
+| Perintah | Exit | Hasil |
+|---|---|---|
+| `npm run typecheck` | 0 | 0 error |
+| `npm run check:imports` | 0 | `IMPORT_OK` — 13 modul server ESM native Node |
+| `npm test` | 0 | **307 tes / 26 file, 307 lulus** (dari 269/24; +38 tes) |
+| `npm run build` | 0 | bundle sukses |
+| `npm run verify` | **0** | typecheck + check:imports + tes + build |
+| `npm run verify:ui` | **0** | responsif 16×6 **0 temuan** · kontras ter-render **0 temuan** |
+| `npm run smoke:provider` | **0** | 8 passed · 0 failed · 3 unverified |
+| `npm audit --omit=dev` | **0** | 0 kerentanan |
+| `npm audit` | 1 | 14 kerentanan (dev toolchain) — didokumentasikan |
+| `npm run verify:release` (artefak 0.6.3) | 1 | 6 kegagalan → skrip terbukti mendeteksi paket yang belum punya fitur rilis |
+| `npm run verify:release` (artefak 0.6.4) | 0 | semua pemeriksaan lulus |
+| `node scripts/smoke-desktop.mjs` (biner 0.6.4) | 0 | 51/51 |
+| `node scripts/verify-asar.mjs` (asar 0.6.4) | 0 | SEMUA PEMERIKSAAN LULUS, tanpa kunci API literal |
+| `node scripts/upgrade-check.cjs` (0.5.0 → 0.6.4) | 0 | LOLUS (data utuh, uninstall aman) |
+| `tar -tvf …tar.gz` | 0 | `dudu-ai` mode **0755** |
+
+### M.6 Batas yang masih terbuka (v0.6.4)
+
+- Rantai hash **deteksi, bukan mencegah** penulisan ulang menyeluruh; tidak ada tanda tangan/pengelolaan kunci.
+- 14 kerentanan dev toolchain belum diperbaiki (butuh upgrade mayor) — tidak masuk paket.
+- Jejak audit belum tampil di CLI; izin belum per-peran; `process:exec` tetap nonaktif.
+- Plugin masih in-process tanpa sandbox.
+- Runtime Linux/macOS, provider live, dan CI GitHub tetap **belum diverifikasi** di lingkungan ini.
+
+---
+
+## N. Rekomendasi tahap berikutnya
 
 1. Jalankan `npm run dist:linux` + smoke di Ubuntu (atau job CI) → lengkapi matriks runtime Linux.
 2. Jalankan build & smoke macOS di runner macos-14 → lengkapi matriks runtime macOS; tambahkan Developer ID + notarization sebelum publikasi.
@@ -386,11 +496,13 @@ Penegakan terjadi di `capability-registry.run()` → `enforce()` → `403 permis
 
 ---
 
-## N. Keputusan kesiapan
+## O. Keputusan kesiapan
 
 ### **READY WITH LIMITATIONS**
 
-- **Windows v0.6.3: siap untuk rilis terverifikasi** — build ✓, artefak ✓, instalasi senyap ✓, startup ✓, smoke 51/51 ✓, upgrade 0.5.0→0.6.3 ✓, data pengguna aman saat uninstall ✓, tidak ada secret dalam paket ✓.
+- **Windows v0.6.3: siap untuk rilis terverifikasi** — build ✓, artefak ✓, instalasi senyap ✓, startup ✓, smoke 51/51 ✓, upgrade 0.5.0→0.6.1 ✓, data pengguna aman saat uninstall ✓, tidak ada secret dalam paket ✓.
+- **Windows v0.6.4: siap untuk rilis terverifikasi** — build ✓, artefak ✓, smoke 51/51 ✓, upgrade 0.5.0→0.6.4 ✓, isi ASAR tervalidasi ✓, `npm audit --omit=dev` 0 kerentanan ✓, 307 tes ✓.
 - **Fase v0.6.3 terbukti lewat tes**: jejak audit terpadu (19 jenis event, fail-closed, anti-duplikasi, redaksi), gerbang izin di batas eksekusi (8 izin), approval terikat tindakan (scope + masa berlaku + sekali pakai) — 269 tes / 24 file lulus, aplikasi terpaket terverifikasi 51/51.
+- **Fase v0.6.4 terbukti lewat tes**: jejak audit dapat ditelusuri di UI (aman: daftar putih detail, filter, pagination, tanpa data sensitif), rantai hash + rotasi jejak, redaksi dua arah, approval fail-closed, validasi isi paket ASAR, audit dependensi produksi bersih — 307 tes / 26 file lulus, aplikasi terpaket terverifikasi 51/51.
 - **Kesiapan lintas platform belum terbentuk**: runtime Linux belum dijalankan, artefak macOS belum dibuat, CI belum dieksekusi, provider live belum diverifikasi. Rilis ini **hanya boleh diklaim untuk Windows**, dan catatan rilis harus menyatakan batas tersebut apa adanya.
-- Tidak ada blocker P0 pada kode setelah perbaikan sesi ini (kegagalan tulis artefak, provider 5xx, dan duplikasi ekspor `redact` ditutup dengan tes/ pemeriksaan otomatis).
+- Tidak ada blocker P0 pada kode setelah perbaikan sesi ini (kegagalan tulis artefak, provider 5xx, duplikasi ekspor `redact`, dan pencatatan approval setelah permission diberikan — semuanya ditutup dengan tes/ pemeriksaan otomatis).

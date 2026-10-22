@@ -3,6 +3,7 @@ import { api, type CapabilityEntry, type Mission, type MissionState } from '../.
 import { useLoad } from '../../lib/useLoad'
 import { cx } from '../../lib/util'
 import { fmtSize } from '../Attachments'
+import { AuditTrail } from '../AuditTrail'
 import { ReminderWorkspace } from '../ReminderWorkspace'
 import { Icon } from '../ui'
 import { PageShell, StateMsg, fmtDate } from './PageShell'
@@ -237,6 +238,8 @@ function MissionDetail({ m, caps, onChanged, onActivity }: { m: Mission; caps: C
       </>)}
 
       <MissionCapabilityRunner m={m} caps={caps} onChanged={onChanged} onActivity={onActivity} />
+
+      <AuditTrail missionId={m.id} missionTitle={m.title} />
 
       <details className="log"><summary>Log eksekusi ({m.log.length})</summary>
         <ul>{m.log.map((l, i) => <li key={i} className={l.level}><time>{new Date(l.at).toLocaleTimeString('id-ID')}</time> {l.msg}</li>)}</ul>

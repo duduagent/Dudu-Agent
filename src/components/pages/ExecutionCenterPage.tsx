@@ -10,6 +10,7 @@ import { api, type Mission, type MissionState, type MissionStep } from '../../li
 import { useLoad } from '../../lib/useLoad'
 import type { ViewId } from '../../lib/types'
 import { cx } from '../../lib/util'
+import { AuditTrail } from '../AuditTrail'
 import { Icon } from '../ui'
 import { PageShell, StateMsg, fmtDate } from './PageShell'
 
@@ -325,6 +326,9 @@ export function ExecutionCenterPage({ onToggleLeft, leftCollapsed, onActivity, o
             )}
           </div>
         )}
+
+        {/* ---------- Jejak audit: misi terpilih, atau seluruh aktivitas bila belum ada ---------- */}
+        <AuditTrail missionId={selectedId ?? undefined} missionTitle={selectedId ? live?.title : undefined} onActivity={onActivity} />
       </section>
 
       {/* ---------- Pusat butuh perhatian ---------- */}

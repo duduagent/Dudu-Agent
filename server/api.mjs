@@ -17,7 +17,7 @@ import { createConnectorStore, ConnectorError } from './connectors.mjs'
 import { createSkillStore, SkillError } from './skills.mjs'
 import { CapabilityError, createCapabilityRegistry } from './capability-registry.mjs'
 import { DuduError } from './errors.mjs'
-import { AuditError } from './execution-audit.mjs'
+import { AuditError, createExecutionAudit } from './execution-audit.mjs'
 import { PermissionError } from './permissions.mjs'
 
 const json = (status, body) => ({ status, body })
@@ -42,9 +42,12 @@ function download({ bytes, name, mime, inline }) {
 /**
  * @param {{ getConfig: () => ReturnType<import('./config.mjs').resolveConfig>, dataDir: string, fetchImpl?: typeof fetch }} opts
  */
-export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, audit = null }) {
+export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, audit: auditInjected = null }) {
   const files = createFileStore({ dataDir, maxUploadBytes: getConfig().maxUploadBytes })
   const kb = createKnowledgeBase({ dataDir, files })
+  // SATU instance audit untuk seluruh proses: misi + registry menulis ke berkas yang sama.
+  // Dua instance terpisah akan memecah rantai hash dan membuat dedupe tidak konsisten.
+  const audit = auditInjected ?? createExecutionAudit({ dataDir, now: () => Date.now() })
   const missions = createMissionService({ dataDir, files, audit })
 
   /* ---------- gateway (satu-satunya jalur LLMSec untuk seluruh modul) ---------- */
@@ -77,7 +80,7 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, au
     mcpClient,
     mcpTools,
     now: () => Date.now(),
-    ...(audit ? { audit } : {}),
+    audit,
   })
   /** token → pengguna (bila header/cookie sesi dikirim); tanpa sesi = null (mode lokal tetap berfungsi penuh). */
   async function currentUser(req) {
@@ -118,10 +121,20 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, au
     if (path === '/api/capability-registry/audit' && method === 'GET') {
       return json(200, await registry.audit({
         limit: query.get('limit') ?? 50,
+        offset: query.get('offset') ?? 0,
         missionId: query.get('missionId') ?? null,
         eventType: query.get('eventType') ?? null,
+        outcome: query.get('outcome') ?? null,
+        actor: query.get('actor') ?? null,
         correlationId: query.get('correlationId') ?? null,
+        since: query.get('since') ?? null,
+        until: query.get('until') ?? null,
       }))
+    }
+    // Integritas jejak audit: verifikasi rantai hash + daftar berkas (aktif + rotasi).
+    if (path === '/api/audit/integrity' && method === 'GET') {
+      const [integrity, files] = await Promise.all([registry.auditIntegrity(), registry.auditFiles()])
+      return json(200, { integrity, files })
     }
     const capRoute = /^\/api\/capability-registry\/([^/]+)(?:\/(validate|run))?$/.exec(path)
     if (capRoute) {
@@ -360,6 +373,27 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, au
       if (!isMissionId(m[1])) throw new MissionError(400, 'bad_id', 'ID misi tidak valid.')
       if (method === 'GET') { const x = await missions.get(m[1]); return x ? json(200, { mission: x }) : json(404, { error: 'not_found' }) }
       if (method === 'DELETE') return (await missions.remove(m[1])) ? json(200, { deleted: true }) : json(404, { error: 'not_found' })
+    }
+    // Jejak audit per misi (halaman + filter). Data diambil dari API server — frontend
+    // TIDAK pernah membaca berkas audit langsung. Payload sudah disanitasi (redaksi).
+    if ((m = /^\/api\/missions\/([^/]+)\/audit$/.exec(path)) && method === 'GET') {
+      if (!isMissionId(m[1])) throw new MissionError(400, 'bad_id', 'ID misi tidak valid.')
+      const mission = await missions.get(m[1])
+      if (!mission) return json(404, { error: 'not_found', message: 'Misi tidak ditemukan.' })
+      const res = await registry.audit({
+        limit: query.get('limit') ?? 50,
+        offset: query.get('offset') ?? 0,
+        missionId: m[1],
+        eventType: query.get('eventType') ?? null,
+        outcome: query.get('outcome') ?? null,
+        actor: query.get('actor') ?? null,
+        // correlationId TIDAK difilter secara default: event yang tidak membawa korelasi
+        // (mis. event capability lama) tetap milik misi ini dan harus terlihat.
+        correlationId: query.get('correlationId') ?? null,
+        since: query.get('since') ?? null,
+        until: query.get('until') ?? null,
+      })
+      return json(200, res)
     }
     if ((m = /^\/api\/missions\/([^/]+)\/(approve|retry|cancel)$/.exec(path)) && method === 'POST') {
       if (!isMissionId(m[1])) throw new MissionError(400, 'bad_id', 'ID misi tidak valid.')

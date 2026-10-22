@@ -27,6 +27,10 @@ jobs:
       # menangkap kesalahan linking yang tidak terlihat oleh tes (mis. export ganda).
       - name: Impor modul server (ESM native)
         run: npm run check:imports
+      # Kerentanan dependensi PRODUKSI (yang benar-benar ikut ke paket).
+      # Dev dependency tidak diperiksa di sini: tidak masuk paket dan perbaikannya breaking.
+      - name: Audit dependensi produksi
+        run: npm run audit:prod
       # Uji jalur error provider TANPA kredensial: skenario live menjadi UNVERIFIED (bukan PASSED)
       # dan tidak membuat pipeline gagal. Tidak ada secret yang dipakai di sini.
       - name: Uji kesiapan provider (tanpa kredensial)
@@ -52,6 +56,8 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apt-get install -y xvfb
           xvfb-run -a node scripts/smoke-desktop.mjs release/linux-unpacked/dudu-ai
+      - name: Verifikasi isi paket (ASAR: berkas wajib, tanpa kebocoran, fitur rilis)
+        run: npm run verify:release
       - name: Izin eksekusi artefak portabel Linux
         run: |
           # Tarball portabel harus membawa mode 0755 agar ./dudu-ai langsung bisa dijalankan.
@@ -83,6 +89,8 @@ jobs:
       - run: npm run dist:win
       - name: Smoke test aplikasi desktop
         run: node scripts/smoke-desktop.mjs "release/win-unpacked/Dudu AI.exe"
+      - name: Verifikasi isi paket (ASAR: berkas wajib, tanpa kebocoran, fitur rilis)
+        run: npm run verify:release
       - name: Audit UI (responsif + kontras ter-render)
         run: npm run verify:ui
       - name: Paket ZIP + checksum
@@ -109,6 +117,8 @@ jobs:
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
       - run: npm run dist:mac
+      - name: "Verifikasi isi paket (ASAR: berkas wajib, tanpa kebocoran, fitur rilis)"
+        run: npm run verify:release
       - name: "Smoke test aplikasi desktop (opsional: runner macOS berbasis GUI)"
         continue-on-error: true
         run: node scripts/smoke-desktop.mjs "release/mac/Dudu AI.app/Contents/MacOS/Dudu AI"

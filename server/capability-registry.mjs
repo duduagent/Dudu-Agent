@@ -958,15 +958,15 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
     const prev = state.items[entry.id] ?? {}
     state.items[entry.id] = {
       ...prev,
-      lastValidation: { at, verdict, checks: checks.map((c) => ({ id: c.id, ok: c.ok, detail: truncate(c.detail, 300) })), error: error ?? null },
+      lastValidation: { at, verdict, checks: checks.map((c) => ({ id: c.id, ok: c.ok, detail: truncate(c.detail, 300) })), error: redact(error ?? null) },
     }
     await persistState()
     // Event unified + field legacy (action/outcome) agar konsumen lama tetap membaca.
     await audit.append({
-      ...buildEvent({ eventType: EVENT_TYPES.CAPABILITY_VALIDATED, capabilityId: entry.id, actor, outcome: verdict, now: () => now(), uuid: () => crypto.randomUUID(), detail: { checks: checks.length, error: error ?? null } }),
+      ...buildEvent({ eventType: EVENT_TYPES.CAPABILITY_VALIDATED, capabilityId: entry.id, actor, outcome: verdict, now: () => now(), uuid: () => crypto.randomUUID(), detail: { checks: checks.length, error: redact(error ?? null) } }),
       at: nowIso(at),
       action: 'validate',
-      error: error ?? null,
+      error: redact(error ?? null),
       checks: checks.length,
     })
     return {
@@ -974,7 +974,7 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
       ok: verdict === 'passed',
       verdict,
       checks,
-      error: error ?? null,
+      error: redact(error ?? null),
       at,
     }
   }
@@ -1057,7 +1057,7 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
         ok,
         durationMs: at - started,
         action: entry.kind,
-        error: error ?? null,
+        error: redact(error ?? null),
         args: redact(args),
         resultPreview: result == null ? null : truncate(redact(result), 300),
       },
@@ -1069,7 +1069,7 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
         eventType: ok ? EVENT_TYPES.TOOL_EXECUTION_SUCCEEDED : EVENT_TYPES.TOOL_EXECUTION_FAILED,
         capabilityId: entry.id, missionId, taskId, execId, actor, outcome: ok ? 'succeeded' : 'failed',
         correlationId, now: () => now(), uuid: () => crypto.randomUUID(),
-        detail: { durationMs: at - started, sideEffects: entry.sideEffects, confirm: Boolean(confirm), args: redact(args), error: error ?? null },
+        detail: { durationMs: at - started, sideEffects: entry.sideEffects, confirm: Boolean(confirm), args: redact(args), error: redact(error ?? null) },
       }),
       at: nowIso(at),
       capabilityId: entry.id,
@@ -1080,7 +1080,7 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
       sideEffects: entry.sideEffects,
       confirm: Boolean(confirm),
       args: redact(args),
-      error: error ?? null,
+      error: redact(error ?? null),
     })
     return {
       capability: await get(entry.id),
@@ -1092,11 +1092,21 @@ export function createCapabilityRegistry({ dataDir, skills, plugins, connectors,
     }
   }
 
-  async function auditTrail({ limit = 50, missionId = null, eventType = null, correlationId = null } = {}) {
-    return audit.read({ limit, missionId, eventType, correlationId })
+  async function auditTrail({ limit = 50, offset = 0, missionId = null, eventType = null, outcome = null, actor = null, correlationId = null, since = null, until = null } = {}) {
+    return audit.read({ limit, offset, missionId, eventType, outcome, actor, correlationId, since, until })
   }
 
-  return { list, get, validate, run, audit: auditTrail, sourceLabels: SOURCE_LABELS, categoryLabels: CATEGORY_LABELS, externalReferences: EXTERNAL_REFERENCES }
+  /** Verifikasi rantai hash jejak audit (deteksi perubahan isi berkas). */
+  async function auditIntegrity() {
+    return audit.verify()
+  }
+
+  /** Daftar berkas audit aktif + arsip rotasi. */
+  async function auditFiles() {
+    return audit.listFiles()
+  }
+
+  return { list, get, validate, run, audit: auditTrail, auditIntegrity, auditFiles, sourceLabels: SOURCE_LABELS, categoryLabels: CATEGORY_LABELS, externalReferences: EXTERNAL_REFERENCES }
 }
 
 function withTimeout(promise, ms, message) {
