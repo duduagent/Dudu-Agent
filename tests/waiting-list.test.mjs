@@ -74,16 +74,21 @@ describe('Waiting list: API', () => {
     const res = await api.handle(H_JSON('POST', '/api/waiting-list', { email: 'new@example.com', platform: 'windows', role: 'developer', note: 'hi' }))
     expect(res.status).toBe(201)
     expect(res.body.ok).toBe(true)
-    expect(res.body.created).toBe(true)
     expect(res.body.entry.id).toMatch(/^[0-9a-f-]{36}$/)
   })
 
-  it('pendaftaran ulang mengembalikan 200 created=false', async () => {
+  it('respons seragam: alamat yang sudah terdaftar tidak dibedakan (tanpa oracle penebakan email)', async () => {
     const api = mkApi()
-    await api.handle(H_JSON('POST', '/api/waiting-list', { email: 'dup@example.com' }))
-    const res = await api.handle(H_JSON('POST', '/api/waiting-list', { email: 'dup@example.com' }))
-    expect(res.status).toBe(200)
-    expect(res.body.created).toBe(false)
+    const first = await api.handle(H_JSON('POST', '/api/waiting-list', { email: 'dup@example.com' }))
+    const second = await api.handle(H_JSON('POST', '/api/waiting-list', { email: 'DUP@example.com' }))
+    expect(first.status).toBe(201)
+    expect(second.status).toBe(201)
+    // Bentuk payload sama → penyerang tidak bisa menebak email yang sudah terdaftar.
+    expect(Object.keys(second.body).sort()).toEqual(Object.keys(first.body).sort())
+    expect(Object.keys(second.body.entry).sort()).toEqual(Object.keys(first.body.entry).sort())
+    expect(second.body).not.toHaveProperty('created')
+    // Alamat email milik sendiri pun tidak dikembalikan.
+    expect(JSON.stringify(second.body)).not.toContain('dup@example.com')
   })
 
   it('input tidak valid → 400 dengan kode yang jelas', async () => {
@@ -109,5 +114,85 @@ describe('Waiting list: API', () => {
     // Tidak ada berkas waiting-list di dalam repo/proyek.
     const inRepo = await fs.readFile(path.join(process.cwd(), 'package.json'), 'utf8')
     expect(inRepo).not.toContain('waiting-list.json')
+  })
+})
+
+describe('Waiting list: ketahanan (audit v0.6.4)', () => {
+  it('permintaan paralel aman: tidak ada entri hilang dan tidak ada error 500', async () => {
+    const api = mkApi()
+    const emails = Array.from({ length: 25 }, (_, i) => `par.${i}@example.invalid`)
+    const results = await Promise.all(emails.map((e) => api.handle(H_JSON('POST', '/api/waiting-list', { email: e }))))
+    expect(results.every((r) => r.status === 201)).toBe(true)
+    const stored = JSON.parse(await fs.readFile(path.join(dir, 'waiting-list.json'), 'utf8'))
+    for (const e of emails) {
+      expect(stored.entries.some((x) => x.email === e), `entri hilang: ${e}`).toBe(true)
+    }
+    expect(stored.entries).toHaveLength(emails.length)
+  })
+
+  it('batas laju: permintaan berlebih ditolak 429 (anti spam/banjir)', async () => {
+    const store = createWaitingListStore({ dataDir: dir, maxPerMinute: 5 })
+    for (let i = 0; i < 5; i++) await store.add({ email: `rate.${i}@example.invalid` })
+    await expect(store.add({ email: 'rate.overflow@example.invalid' })).rejects.toMatchObject({ status: 429, code: 'rate_limited' })
+  })
+
+  it('batas jumlah entri: daftar penuh ditolak, bukan membengkak tanpa batas', async () => {
+    const store = createWaitingListStore({ dataDir: dir, maxEntries: 3 })
+    for (let i = 0; i < 3; i++) await store.add({ email: `cap.${i}@example.invalid` })
+    await expect(store.add({ email: 'cap.overflow@example.invalid' })).rejects.toMatchObject({ status: 429, code: 'list_full' })
+  })
+
+  it('berkas rusak diprahkan, bukan dihapus diam-diam', async () => {
+    await fs.writeFile(path.join(dir, 'waiting-list.json'), '{bukan json')
+    const store = createWaitingListStore({ dataDir: dir })
+    const res = await store.add({ email: 'after.corrupt@example.invalid' })
+    expect(res.entry.id).toMatch(/^[0-9a-f-]{36}$/)
+    const files = await fs.readdir(dir)
+    expect(files.some((f) => f.includes('corrupt')), 'berkas rusak haruskept').toBe(true)
+    const summary = await store.summary()
+    expect(summary.lastRecovery).toBeTruthy()
+  })
+
+  it('operator dapat menghapus entri (retensi/penghapusan)', async () => {
+    const store = createWaitingListStore({ dataDir: dir })
+    await store.add({ email: 'hapus@example.invalid' })
+    expect(await store.count()).toBe(1)
+    expect((await store.remove('HAPUS@example.invalid')).removed).toBe(true)
+    expect(await store.count()).toBe(0)
+    expect((await store.remove('tidak.ada@example.invalid')).removed).toBe(false)
+  })
+
+  it('restart: instance baru membaca daftar dari disk', async () => {
+    const api = mkApi()
+    await api.handle(H_JSON('POST', '/api/waiting-list', { email: 'restart@example.invalid' }))
+    const fresh = createWaitingListStore({ dataDir: dir })
+    expect(await fresh.count()).toBe(1)
+  })
+
+  it('email dengan tanda baca umum tetap valid (hyphen, plus, titik)', async () => {
+    const store = createWaitingListStore({ dataDir: dir })
+    for (const mail of ['a-b@example.invalid', 'a+b@example.invalid', 'a.b@example.invalid']) {
+      const res = await store.add({ email: mail })
+      expect(res.entry.email, mail).toBe(mail)
+    }
+  })
+
+  it('karakter kontrol dibuang, teks biasa tidak dirusak', async () => {
+    const store = createWaitingListStore({ dataDir: dir })
+    const res = await store.add({ email: 'ctrl@example.invalid', note: 'halo dunia' })
+    expect(res.entry.id).toMatch(/^[0-9a-f-]{36}$/)
+    const stored = JSON.parse(await fs.readFile(path.join(dir, 'waiting-list.json'), 'utf8'))
+    expect(stored.entries[0].note).not.toMatch(/[\u0000-\u001F]/)
+    expect(stored.entries[0].note).toContain('dunia')
+  })
+
+  it('folder penyimpanan tidak tersedia → error terkelola (bukan crash, tanpa membocorkan path)', async () => {
+    const blocker = path.join(dir, 'blokir')
+    await fs.writeFile(blocker, 'bukan direktori')
+    const api = createApi({ getConfig: () => resolveConfig({ DUDU_PROVIDER_API_KEY: 'k' }), dataDir: path.join(blocker, 'sub') })
+    const res = await api.handle(H_JSON('POST', '/api/waiting-list', { email: 'broken@example.invalid' }))
+    expect(res.status).toBe(500)
+    expect(res.body.error).toBe('internal_error')
+    expect(res.body.message).not.toContain('blokir')   // path tidak dibocorkan ke klien
   })
 })

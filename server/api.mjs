@@ -464,10 +464,13 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, au
     // ---------- waiting list (landing page publik) ----------
     if (path === '/api/waiting-list' && method === 'POST') {
       const b = readJson()
-      const { entry, created } = await waitingList.add({
+      const { entry } = await waitingList.add({
         email: b.email, platform: b.platform, role: b.role, note: b.note,
       })
-      return json(created ? 201 : 200, { ok: true, created, entry })
+      // Respons SERAGAM untuk pendaftaran baru maupun alamat yang sudah terdaftar:
+      // status/isi yang berbeda akan menjadi oracle penebakan email. `created` sengaja
+      // tidak dikirim, dan alamat email sendiri tidak dikembalikan.
+      return json(201, { ok: true, entry: { id: entry.id, platform: entry.platform, role: entry.role, createdAt: entry.createdAt } })
     }
 
     /* ---------- akun & sesi (opsional: mode lokal tetap berfungsi tanpa login) ---------- */
