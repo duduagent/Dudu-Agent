@@ -23,6 +23,8 @@ import { WaitingListError, createWaitingListStore } from './waiting-list.mjs'
 
 const json = (status, body) => ({ status, body })
 const INLINE_IMAGE = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+/** Batas body (karakter) untuk endpoint daftar tunggu — cukup untuk email + catatan pendek. */
+const MAX_WAITING_LIST_BODY = 8_000
 
 function download({ bytes, name, mime, inline }) {
   const safeInline = inline && INLINE_IMAGE.has(mime)
@@ -463,6 +465,12 @@ export function createApi({ getConfig, dataDir, fetchImpl = globalThis.fetch, au
 
     // ---------- waiting list (landing page publik) ----------
     if (path === '/api/waiting-list' && method === 'POST') {
+      // Batas ukuran body juga ditegakkan di jalur lokal/Electron (transport HTTP sudah
+      // membatasi 256 KB, tetapi api.handle() bisa dipanggil langsung tanpa transport).
+      const bodyText = String(req.body ?? '')
+      if (bodyText.length > MAX_WAITING_LIST_BODY) {
+        return json(413, { error: 'request_too_large', message: 'Permintaan terlalu besar untuk daftar tunggu.' })
+      }
       const b = readJson()
       const { entry } = await waitingList.add({
         email: b.email, platform: b.platform, role: b.role, note: b.note,

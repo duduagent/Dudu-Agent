@@ -136,7 +136,11 @@ for (const tag of imgs) {
   if (!/\bwidth="\d+"/.test(tag) || !/\bheight="\d+"/.test(tag)) problems.push(`gambar tanpa width/height (layout shift): ${tag.slice(0, 70)}`)
 }
 const ogImage = (html.match(/<meta property="og:image" content="([^"]+)"/) || [])[1]
-if (ogImage && !exists(ogImage)) problems.push(`og:image menunjuk berkas yang tidak ada: ${ogImage}`)
+if (ogImage) {
+  // Untuk URL absolut, hanya bagian path-nya yang dicek lokal (host-nya akan diisi domain resmi).
+  const localPath = ogImage.replace(/^https?:\/\/[^/]+/, '').replace(/^\//, '')
+  if (localPath && !exists(localPath)) problems.push(`og:image menunjuk berkas yang tidak ada: ${localPath}`)
+}
 
 /* ---------------- 8. Kontras token yang dipakai ---------------- */
 const CONTRAST = [
@@ -169,8 +173,27 @@ for (const [fg, bg, min, label] of CONTRAST) {
 const placeholderRe = /REPLACE-WITH-OFFICIAL-DOMAIN/
 for (const f of ['sitemap.xml', 'robots.txt']) {
   if (placeholderRe.test(read(f))) {
-    blockers.push(`${f} masih memakai placeholder REPLACE-WITH-OFFICIAL-DOMAIN — ganti dengan domain resmi sebelum publikasi`)
+    blockers.push(`${f} masih memakai placeholder REPLACE-WITH-OFFICIAL-DOMAIN - ganti dengan domain resmi sebelum publikasi`)
   }
+}
+// OG/Twitter image harus memakai domain yang SAMA dengan sitemap & robots, agar satu
+// penggantian token cukup dan tidak ada meta yang menunjuk host lain.
+const htmlNoComments = htmlBody
+const ogImageRef = (htmlNoComments.match(/<meta property="og:image" content="([^"]+)"/) || [])[1] || ''
+const twImageRef = (htmlNoComments.match(/<meta name="twitter:image" content="([^"]+)"/) || [])[1] || ''
+if (ogImageRef && !placeholderRe.test(ogImageRef) && /^https?:\/\//.test(ogImageRef)) {
+  problems.push('og:image memakai domain absolut — harus memakai placeholder yang sama dengan sitemap/robots')
+}
+if (twImageRef && ogImageRef && twImageRef !== ogImageRef) {
+  problems.push('twitter:image harus memakai URL yang sama persis dengan og:image')
+}
+const sitemapHost = (read('sitemap.xml').match(/https:\/\/([^/]+)\//) || [])[1] || ''
+const robotsHost = (read('robots.txt').match(/https:\/\/([^/]+)\//) || [])[1] || ''
+if (sitemapHost && robotsHost && sitemapHost !== robotsHost) {
+  problems.push(`sitemap host (${sitemapHost}) dan robots host (${robotsHost}) berbeda`)
+}
+if (ogImageRef && sitemapHost && !ogImageRef.includes(sitemapHost) && placeholderRe.test(ogImageRef)) {
+  problems.push('og:image dan sitemap harus memakai token placeholder yang sama')
 }
 
 /* ---------------- Laporan ---------------- */

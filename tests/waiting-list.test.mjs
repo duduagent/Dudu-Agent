@@ -191,8 +191,21 @@ describe('Waiting list: ketahanan (audit v0.6.4)', () => {
     await fs.writeFile(blocker, 'bukan direktori')
     const api = createApi({ getConfig: () => resolveConfig({ DUDU_PROVIDER_API_KEY: 'k' }), dataDir: path.join(blocker, 'sub') })
     const res = await api.handle(H_JSON('POST', '/api/waiting-list', { email: 'broken@example.invalid' }))
-    expect(res.status).toBe(500)
-    expect(res.body.error).toBe('internal_error')
-    expect(res.body.message).not.toContain('blokir')   // path tidak dibocorkan ke klien
+    expect(res.status).toBe(503)
+    expect(res.body.error).toBe('storage_unavailable')
+    // Pesan untuk operator harus bisa ditindaklanjuti, tanpa path internal.
+    expect(res.body.message).toMatch(/folder data|ruang disk/i)
+    expect(res.body.message).not.toContain('blokir')
+    expect(JSON.stringify(res.body)).not.toContain('example.invalid')
+  })
+
+  it('body melebihi batas endpoint → 413 (berlaku juga di jalur lokal/Electron tanpa transport)', async () => {
+    const api = mkApi()
+    const big = JSON.stringify({ email: 'big@example.invalid', note: 'A'.repeat(20000) })
+    const res = await api.handle(H_JSON('POST', '/api/waiting-list', big))
+    expect(res.status).toBe(413)
+    expect(res.body.error).toBe('request_too_large')
+    const stored = await fs.readFile(path.join(dir, 'waiting-list.json'), 'utf8').catch(() => '')
+    expect(stored).not.toContain('big@example.invalid')
   })
 })

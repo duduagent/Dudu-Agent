@@ -99,15 +99,22 @@ export function createWaitingListStore({
 
   async function persist() {
     if (!cache) return
-    await fs.mkdir(dataDir, { recursive: true })
-    // Nama tmp unik per operasi → tidak ada balapan rename antar permintaan paralel.
-    const tmp = `${file}.${process.pid}.${tmpSeq++}.tmp`
-    await fs.writeFile(tmp, JSON.stringify(cache, null, 2), { mode: 0o600 })
-    await fs.rename(tmp, file)
-    // `writeFile` hanya memakai `mode` saat membuat berkas; berkas yang sudah ada
-    // mempertahankan mode lamanya. Chmod eksplisit menjamin 0600 di POSIX.
-    // Di Windows mode POSIX tidak berlaku (ACL per-user yang mengatur) — chmod diabaikan.
-    try { await fs.chmod(file, 0o600) } catch { /* tidak didukung/ditolak → biarkan */ }
+    try {
+      await fs.mkdir(dataDir, { recursive: true })
+      // Nama tmp unik per operasi → tidak ada balapan rename antar permintaan paralel.
+      const tmp = `${file}.${process.pid}.${tmpSeq++}.tmp`
+      await fs.writeFile(tmp, JSON.stringify(cache, null, 2), { mode: 0o600 })
+      await fs.rename(tmp, file)
+      // `writeFile` hanya memakai `mode` saat membuat berkas; berkas yang sudah ada
+      // mempertahankan mode lamanya. Chmod eksplisit menjamin 0600 di POSIX.
+      // Di Windows mode POSIX tidak berlaku (ACL per-user yang mengatur) — chmod diabaikan.
+      try { await fs.chmod(file, 0o600) } catch { /* tidak didukung/ditolak → biarkan */ }
+    } catch (e) {
+      // Jangan bocorkan path internal/pesan OS ke klien atau log. Pesan untuk operator
+      // dibuat eksplisit (izin folder data, ruang disk).
+      throw new WaitingListError(503, 'storage_unavailable',
+        'Penyimpanan daftar tunggu tidak dapat ditulis. Periksa izin folder data dan ruang disk instance ini.')
+    }
   }
 
   /** Batas laju global per instance (mengickname spam & banjir; per-IP diserahkan ke reverse proxy). */

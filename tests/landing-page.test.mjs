@@ -26,9 +26,28 @@ describe('Landing page: berkas & struktur', () => {
     expect(body).toMatch(/<meta name="description" content=".{80,}"/i)
     expect(body).toMatch(/<meta property="og:title"/)
     expect(body).toMatch(/<meta property="og:description"/)
-    expect(body).toMatch(/<meta property="og:image" content="assets\/img\/og-image\.png"/)
+    expect(body).toMatch(/<meta property="og:image" content="https:\/\/REPLACE-WITH-OFFICIAL-DOMAIN\/assets\/img\/og-image\.png"/)
     expect(body).toMatch(/<meta name="twitter:card"/)
     expect(body).toMatch(/<link rel="icon" href="assets\/img\/icon\.svg"/)
+  })
+
+  it('placeholder domain konsisten di sitemap, robots, dan OG image (satu penggantian cukup)', () => {
+    const sitemap = read('sitemap.xml')
+    const robots = read('robots.txt')
+    const og = (body.match(/<meta property="og:image" content="([^"]+)"/) || [])[1] || ''
+    const tw = (body.match(/<meta name="twitter:image" content="([^"]+)"/) || [])[1] || ''
+    expect(sitemap).toContain('REPLACE-WITH-OFFICIAL-DOMAIN')
+    expect(robots).toContain('REPLACE-WITH-OFFICIAL-DOMAIN')
+    expect(og).toContain('REPLACE-WITH-OFFICIAL-DOMAIN')
+    // OG & Twitter image harus URL yang sama persis.
+    expect(tw).toBe(og)
+    // Host yang sama di semua berkas.
+    const hosts = [
+      (sitemap.match(/https:\/\/([^/]+)\//) || [])[1],
+      (robots.match(/https:\/\/([^/]+)\//) || [])[1],
+      (og.match(/https:\/\/([^/]+)\//) || [])[1],
+    ]
+    expect(new Set(hosts).size).toBe(1)
   })
 
   it('canonical URL tidak ada selama domain resmi belum diketahui', () => {

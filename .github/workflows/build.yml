@@ -31,6 +31,13 @@ jobs:
       # Dev dependency tidak diperiksa di sini: tidak masuk paket dan perbaikannya breaking.
       - name: Audit dependensi produksi
         run: npm run audit:prod
+      # Konfigurasi reverse proxy: validasi statis (TLS, loopback, tanpa CORS, batas laju,
+      # batas body, timeout, header keamanan). Placeholder domain sengaja TIDAK menghalangi
+      # pemeriksaan wajib; mode --strict dipakai terpisah saat domain sudah ditetapkan.
+      - name: Validasi konfigurasi reverse proxy
+        run: npm run proxy:check
+      - name: Probe integrasi waiting list (data sintetis)
+        run: npm run probe:waiting-list
       # Uji jalur error provider TANPA kredensial: skenario live menjadi UNVERIFIED (bukan PASSED)
       # dan tidak membuat pipeline gagal. Tidak ada secret yang dipakai di sini.
       - name: Uji kesiapan provider (tanpa kredensial)

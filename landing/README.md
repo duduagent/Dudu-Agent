@@ -49,8 +49,8 @@ npm run landing:check:strict   # sama, tetapi gagal bila masih ada blocker publi
 `npm run landing:check` melaporkan hal-hal berikut sebagai **BLOCKER PUBLIKASI** (hanya terlihat bila
 `--strict` dijalankan):
 
-1. **Domain resmi belum ditetapkan.** `sitemap.xml` dan `robots.txt` memakai placeholder
-   `REPLACE-WITH-OFFICIAL-DOMAIN`. Ganti dengan domain resmi, lalu jalankan ulang
+1. **Domain resmi belum ditetapkan.** `sitemap.xml`, `robots.txt`, dan meta `og:image`/`twitter:image`
+   memakai placeholder `REPLACE-WITH-OFFICIAL-DOMAIN`. Ganti dengan domain resmi, lalu jalankan ulang
    `npm run landing:check:strict`.
 2. **Canonical URL belum ditambahkan** (sengaja tidak ada sekarang) — tambahkan
    `<link rel="canonical" href="https://<domain>/">` setelah domain disahkan.
@@ -58,6 +58,10 @@ npm run landing:check:strict   # sama, tetapi gagal bila masih ada blocker publi
    (GitHub Pages, Netlify, Cloudflare Pages, atau server sendiri).
 
 Tidak ada domain, alamat kontak, atau URL repositori yang dikarang di halaman ini.
+
+> Daftar perubahan domain yang persis, konfigurasi reverse proxy (nginx) beserta prosedur uji yang
+> wajib dijalankan sebelum produksi, dan SOP operator (privasi, retensi, penghapusan, insiden):
+> **[deploy/README.md](../deploy/README.md)** dan **[deploy/OPERATOR-SOP.md](../deploy/OPERATOR-SOP.md)**.
 
 ## Konfigurasi deployment minimum (TAHAP 3 audit)
 

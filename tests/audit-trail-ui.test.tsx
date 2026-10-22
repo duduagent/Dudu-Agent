@@ -90,11 +90,12 @@ describe('Jejak Audit di UI', () => {
     const user = userEvent.setup(); render(<App />)
     const trail = await openMissionDetail(user, m.title)
     await user.selectOptions(within(trail).getByLabelText(/hasil/i), 'failed')
+    // Tunggu hasil filter benar-benar terpasang (render bisa terlambat di bawah beban paralel).
     await waitFor(() => {
       const items = within(listOf()).queryAllByText(/gagal/i)
       expect(items.length).toBe(0)   // tidak ada event gagal pada misi sukses
+      expect(within(listOf()).queryByText(/misi selesai/i)).not.toBeInTheDocument()
     }, { timeout: 10000 })
-    expect(within(listOf()).queryByText(/misi selesai/i)).not.toBeInTheDocument()
   }, 30000)
 
   it('jumlah event ditampilkan sebagai ringkasan jujur; batas halaman preventing overload', async () => {

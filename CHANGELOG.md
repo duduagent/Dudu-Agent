@@ -3,50 +3,74 @@
 Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Versi memakai SemVer.
 Status fitur memakai kosakata yang jujur: **Implemented** · **Tested** · **Partially implemented** · **Mock / simulation** · **Planned** · **Blocked**.
 
-## [Unreleased] — Landing Page Publik v1 + Audit Kesiapan Produksi
+## [Unreleased] — Landing Page Publik v1 + Audit Kesiapan Produksi + Persiapan Peluncuran
 
 > Ini **tidak** mengubah aplikasi desktop: versi paket tetap `0.6.4`, tidak ada artefak rilis baru, dan
 > `landing/` **tidak** ikut ke paket desktop (terverifikasi: 0 entri `landing/` di dalam `app.asar`).
-> Belum ada tag, push, atau release.
+> Belum ada tag, push, atau release. **Landing page BELUM dipublikasikan** — domain & hosting belum ada.
 
 ### Added
 - **Dudu Public Landing Page v1** (`landing/`) — situs pemasaran statis terpisah dari aplikasi internal:
   hero, demonstrasi dengan **screenshot nyata** dari build lokal, tiga kanal produk dengan status
   jujur (Web App *self-hosted* · Desktop **Windows tersedia** · **Linux parsial** · **macOS & mobile belum terbit**),
-  cara kerja enam tahap, lima use case, penjelasan keamanan **beserta batasnya** (audit bukan tamper-proof; keamanan belum tersertifikasi),
-  FAQ, formulir waiting list, dan footer. Tanpa analytics, tanpa cookie pihak ketiga, tanpa dependensi baru.
-- **Endpoint waiting list** `POST /api/waiting-list` (`server/waiting-list.mjs`) — data disimpan di folder data
-  instance (mode 0600 di POSIX), validasi ketat di server, idempoten per alamat email, dan **tidak ada
+  cara kerja enam tahap, lima use case, penjelasan keamanan **beserta batasnya** (audit bukan tamper-proof;
+  keamanan belum tersertifikasi), FAQ, formulir waiting list, dan footer. Tanpa analytics, tanpa cookie
+  pihak ketiga, tanpa dependensi baru.
+- **Endpoint waiting list** `POST /api/waiting-list` (`server/waiting-list.mjs`) — data disimpan di folder
+  data instance (mode 0600 di POSIX), validasi ketat di server, idempoten per alamat email, dan **tidak ada
   endpoint pembacaan daftar** (alamat email tidak pernah bocor lewat API).
-- Perkakas: `npm run landing:dev` (pratinjau statis), `npm run landing:check` /
-  `npm run landing:check:strict` (tautan, aset, status kanal, klaim tanpa penyangkal, kontras, blocker
-  publikasi), `scripts/landing-audit.cjs` (audit responsif Electron), dan
-  `scripts/probe-waiting-list.mjs` (probe integrasi lokal, data sintetis).
-- **Dokumentasi konfigurasi deployment minimum** (`landing/README.md` §"Konfigurasi deployment minimum"):
-  header keamanan untuk host statis, pola reverse proxy (tanpa membuka port Dudu), CORS/CSRF, batas laju
-  berlapis, retensi/penghapusan/backup, dan aturan logging tanpa email.
-- Tes: `tests/landing-page.test.mjs` (18 tes) + `tests/waiting-list.test.mjs` (19 tes).
+- **Konfigurasi reverse proxy** (`deploy/nginx/dudu-landing.conf`): TLS di proxy, API hanya lewat loopback
+  `127.0.0.1:8787`, **hanya** `POST /api/waiting-list` yang diekspos (API lain → 404, API Dudu tidak punya
+  autentikasi), rate limit per-IP dari `$binary_remote_addr` (XFF klien tidak dipercaya),
+  `client_max_body_size 16k`, timeout pendek, `proxy_intercept_errors` + halaman 503 sendiri, header
+  keamanan landing page. **Status: NOT VERIFIED** — nginx tidak tersedia di mesin pengembangan ini.
+- **Validator konfigurasi proxy** (`scripts/check-proxy-config.mjs`, `npm run proxy:check`): memeriksa
+  properti keamanan yang wajib ada (loopback, tanpa CORS, batas body, timeout, rate limit per-IP,
+  X-Dudu-Client, header keamanan, blok 404 untuk /api/* lain). Placeholder dilaporkan "belum siap
+  produksi"; `--strict` menggagalkannya.
+- **Uji integrasi e2e lewat proksi uji** (`tests/landing-proxy-e2e.test.mjs`, 7 tes): alur landing → proxy
+  → API → berkas dengan kebijakan yang sama seperti nginx — endpoint lain 404, hanya POST, body besar
+  413, rate limit per-IP 429, backend mati 503, respons seragam, dan **log proxy tidak memuat email**.
+- **Dokumentasi operasional** (`deploy/README.md` + `deploy/OPERATOR-SOP.md`): konfigurasi minimum, daftar
+  perubahan domain, prosedur uji wajib sebelum produksi, serta SOP privasi/retensi/penghapusan/pemulihan/
+  insiden. Keputusan yang belum ditetapkan ditandai **DECISION REQUIRED**.
+- Perkakas: `npm run landing:dev`, `npm run landing:check` / `landing:check:strict`, `npm run proxy:check` /
+  `proxy:check:strict`, `npm run probe:waiting-list`, `scripts/landing-audit.cjs`,
+  `scripts/probe-waiting-list.mjs`. CI menjalankan `proxy:check` + `probe:waiting-list`.
+- Tes: `tests/landing-page.test.mjs` (19), `tests/waiting-list.test.mjs` (20),
+  `tests/landing-proxy-e2e.test.mjs` (7).
 
-### Fixed — hasil audit produksi (v0.6.4)
+### Fixed — hasil audit produksi & persiapan peluncuran
 | Temuan | Risiko | Perbaikan |
 |---|---|---|
-| Penulisan waiting list **tidak aman saat paralel**: nama berkas tmp dipakai bersama → `ENOENT`/500 dan entri bisa hilang | **High** | Operasi baca-ubah-tulis **diserialisasi** (antrean) + nama tmp unik per operasi; 25 permintaan paralel kini 0 hilang & 0 error |
-| **Oracle penebakan email**: pendaftaran ulang menjawab 200 `created:false` vs 201 `created:true` | **Medium** | Respons **seragam** (201, bentuk sama, tanpa `created`, tanpa email) |
-| **Tanpa batas laju** → spam/banjir & pertumbuhan berkas tak terbatas | **Medium** | Batas laju global per instance (60/menit → `429 rate_limited`) + batas jumlah entri (`429 list_full`) |
-| **Berkas rusak dihapus diam-diam** → seluruh daftar hilang tanpa jejak | **Medium** | Berkas rusak **diprahkan** sebagai `waiting-list.json.corrupt-<ts>.json`; operator diberi `summary().lastRecovery` |
-| **Karakter kontrol mentah tertanam di source** → berkas terbaca "biner" oleh perkakas | **Low** | Sanitasi ditulis per-kode-char (tanpa regex escape) → berkas UTF-8 biasa, 0 byte kontrol |
-| Klaim "we will tell you …" & "Unsubscribe by replying" — **produk tidak punya mailing system** (SMTP hanya kerangka, `live:false`) | **Medium** | Teks diganti jujur: kontak dilakukan manusia, tidak ada pengiriman otomatis, penghapusan bisa diminta |
-| Tidak ada mekanisme penghapusan/retensi | **Low** | `store.remove(email)` untuk operator + kebijakan retensi & backup didokumentasikan |
+| Probe waiting list **tidak punya assertion** → exit 0 selalu, regresi tak pernah terdeteksi | **High** | Probe ditulis ulang: 14 skenario ber-assertion, PASS/FAIL per skenario, ringkasan (dijalankan/lulus/gagal/dilewati), exit 0 hanya bila semua lulus, exit 2 bila setup gagal, folder sementara dibersihkan |
+| "Exit code 1" pada probe sebelumnya ternyata **artefak capture PowerShell**, bukan bug skrip | — | Didokumentasikan; exit code probe kini bermakna (dibuktikan uji mutasi: regresi oracle → 2 skenario GAGAL, exit 1) |
+| Penulisan waiting list **tidak aman saat paralel** (nama tmp bersama → ENOENT/500, entri hilang) | **High** | Operasi baca-ubah-tulis diserialisasi + nama tmp unik; 25 permintaan paralel → 0 hilang, 0 error |
+| **Oracle penebakan email** (duplikat 200 `created:false` vs 201 `created:true`) | Medium | Respons seragam (201, bentuk sama, tanpa `created`, tanpa echo email) |
+| **Tanpa batas laju** → spam/banjir & berkas tumbuh tanpa batas | Medium | Batas laju global per instance (60/menit → 429) + batas jumlah entri (429 list_full) |
+| **Berkas rusak dihapus diam-diam** → seluruh daftar hilang tanpa jejak | Medium | Berkas rusak diprahkan sebagai `waiting-list.json.corrupt-<ts>.json`; `summary().lastRecovery` memberi tahu operator |
+| Batas ukuran body **tidak berlaku di jalur lokal/Electron** (hanya transport HTTP) | Medium | Guard 8 KB pada endpoint → `413 request_too_large` (tidak diparse/disimpan) |
+| Kegagalan penyimpanan menjawab **500 internal_error** tanpa pesan yang dapat ditindaklanjuti; pesan OS berisi path masuk log | Medium | → `503 storage_unavailable` + pesan operator ("periksa izin folder data dan ruang disk"), tanpa path internal |
+| Klaim "we will tell you …" & "Unsubscribe by replying" — produk **tidak punya mailing system** (SMTP scaffold, `live:false`) | Medium | Teks diganti jujur (kontak oleh manusia, tanpa pengiriman otomatis, penghapusan bisa diminta) |
+| `og:image`/`twitter:image` path relatif — tidak konsisten dengan sitemap/robots | Low | Token placeholder yang sama; `landing:check` memverifikasi host sitemap/robots/OG konsisten |
+| Karakter kontrol mentah tertanam di source `waiting-list.mjs` (berkas terbaca "biner") | Low | Sanitasi per-kode-char; berkas UTF-8 biasa, 0 byte kontrol |
+| Tidak ada mekanisme penghapusan/retensi | Low | `store.remove(email)` + kebijakan retensi/backup/akses didokumentasikan (SOP operator) |
+| Tes `audit-trail-ui` "filter outcome" **flaky** (assertion terakhir di luar `waitFor` → balapan render) | Low | Assertion dipindah ke dalam `waitFor` (tidak dilonggarkan); 353 tes hijau 2× berturut-turut |
 
 ### Known blockers (belum boleh dipublikasikan)
-- **Domain resmi belum ditetapkan** → `sitemap.xml`/`robots.txt` memakai placeholder
-  `REPLACE-WITH-OFFICIAL-DOMAIN` dan belum ada canonical URL. `landing:check:strict` gagal selama itu belum diganti.
-- **Belum ada hosting**; landing page berupa berkas statis yang perlu diunggah ke host, dan waiting list
-  butuh instance Dudu di belakang reverse proxy (belum ada yang dikonfigurasi).
-- **Tidak ada CTA "Try Web App" ke URL publik** karena belum ada instance terkelola; hanya mode self-hosted
-  (dijelaskan di halaman, bukan dikarang sebagai tautan).
-- **Tidak ada tombol unduh langsung** ke berkas rilis (belum ada mirror publik); halaman memuat tabel artefak
-  terverifikasi beserta statusnya.
+- **Domain resmi belum ditetapkan** → `sitemap.xml`, `robots.txt`, dan meta `og:image`/`twitter:image`
+  memakai placeholder `REPLACE-WITH-OFFICIAL-DOMAIN`; canonical URL belum ada. `npm run landing:check:strict`
+  **gagal** selama itu belum diganti (exit 1) — sengaja, tidak dilonggarkan.
+- **Reverse proxy belum dijalankan** → konfigurasi nginx ada dan divalidasi statis (`npm run proxy:check`),
+  tetapi **NOT VERIFIED** dengan nginx sungguhan: tidak ada nginx/Docker/WSL di mesin ini. Prosedur uji
+  wajib ada di `deploy/README.md` §5.
+- **TLS & hosting belum ada** → tidak ada domain, sertifikat, atau host yang dikonfigurasi.
+- **Belum ada instance Dudu di belakang proxy** → waiting list hanya berfungsi same-origin; tanpa itu formulir
+  menampilkan pesan jujur bahwa endpoint tidak terjangkau.
+- **Tidak ada CTA "Try Web App" ke URL publik** (belum ada instance terkelola) dan **tidak ada tombol unduh**
+  artefak (belum ada mirror publik) — keduanya dijelaskan di halaman, bukan dikarang.
+- **Keputusan operator belum diambil** (lihat `deploy/OPERATOR-SOP.md`): retensi, PIC, kanal kontak, dan
+  tenggatrespons permintaan penghapusan — semuanya **DECISION REQUIRED**.
 
 ---
 
