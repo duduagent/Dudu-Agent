@@ -117,6 +117,11 @@ if (!has(/proxy_set_header\s+X-Dudu-Client\s+1/)) problems.push('X-Dudu-Client t
 for (const m of new Set([...conf.matchAll(/<([A-Z_]+)>/g)].map((m) => m[1]))) {
   placeholders.push(m)
 }
+// electron-builder.yml maintainer: placeholder email (bukan domain, tapi sama pentingnya)
+const ebYaml = fs.readFileSync(path.join(root, 'electron-builder.yml'), 'utf8')
+if (ebYaml.includes('maintainer:') && !/REPLACE-WITH-OFFICIAL-EMAIL/.test(ebYaml)) {
+  placeholders.push('electron-builder.yml maintainer (REPLACE-WITH-OFFICIAL-EMAIL)')
+}
 
 /* ---------- Laporan ---------- */
 console.log('Pemeriksaan konfigurasi reverse proxy (deploy/nginx/dudu-landing.conf)')

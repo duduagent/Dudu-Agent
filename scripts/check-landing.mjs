@@ -171,10 +171,20 @@ for (const [fg, bg, min, label] of CONTRAST) {
 
 /* ---------------- 9. Placeholder domain (blocker publikasi) ---------------- */
 const placeholderRe = /REPLACE-WITH-OFFICIAL-DOMAIN/
+const emailPlaceholderRe = /REPLACE-WITH-OFFICIAL-EMAIL/
 for (const f of ['sitemap.xml', 'robots.txt']) {
   if (placeholderRe.test(read(f))) {
     blockers.push(`${f} masih memakai placeholder REPLACE-WITH-OFFICIAL-DOMAIN - ganti dengan domain resmi sebelum publikasi`)
   }
+}
+// package.json homepage & electron-builder.yml maintainer harus memakai token yang sama
+const pkgJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+if (pkgJson.homepage && !placeholderRe.test(pkgJson.homepage) && /^https?:\/\//.test(pkgJson.homepage)) {
+  problems.push('package.json homepage memakai domain absolut — harus memakai placeholder REPLACE-WITH-OFFICIAL-DOMAIN')
+}
+const ebYaml = fs.readFileSync(path.join(root, 'electron-builder.yml'), 'utf8')
+if (ebYaml.includes('maintainer:') && !emailPlaceholderRe.test(ebYaml)) {
+  problems.push('electron-builder.yml maintainer harus memakai placeholder REPLACE-WITH-OFFICIAL-EMAIL')
 }
 // OG/Twitter image harus memakai domain yang SAMA dengan sitemap & robots, agar satu
 // penggantian token cukup dan tidak ada meta yang menunjuk host lain.

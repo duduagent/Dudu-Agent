@@ -16,7 +16,50 @@ menerjemahkan kebijakan yang sama, ditambah validator statis konfigurasi.
 
 ---
 
-## 1. Yang WAJIB ada sebelum konfigurasi ini dipakai
+## 1. Sumber konfigurasi domain tunggal (single-source)
+
+Domain dan email placeholder **harus** berasal dari satu sumber konfigurasi:
+
+**`deploy/domain.example.json`** — berkas ini mendokumentasikan semua token yang perlu diganti.
+Berkas ini **selalu** pakai placeholder (`REPLACE-WITH-OFFICIAL-DOMAIN` / `REPLACE-WITH-OFFICIAL-EMAIL`)
+karena tidak ada domain resmi yang tersedia.
+
+| Token | Digunakan di | Keterangan |
+|---|---|---|
+| `REPLACE-WITH-OFFICIAL-DOMAIN` | `landing/sitemap.xml`, `landing/robots.txt`, `landing/index.html` (og:image, twitter:image), `package.json` (`homepage`), `deploy/nginx/dudu-landing.conf` (`<DOMAIN>`) | host utama |
+| `REPLACE-WITH-OFFICIAL-EMAIL` | `electron-builder.yml` (`linux.maintainer`) | kontak pemelihara paket .deb |
+| `<DOMAIN>`, `<PATH_SERT>`, `<PATH_KEY>`, `<PATH_LANDING>` | `deploy/nginx/dudu-landing.conf` | konfigurasi nginx & TLS (ganti bersamaan) |
+
+### Cara menukar domain (setelah domain resmi ditentukan dan dibeli)
+
+**JANGAN** mengganti satu per satu berkas dengan tangan — semua token diganti dari
+`deploy/domain.example.json` agar konsisten.
+
+```bash
+# 1. Edit berkas sumber (satu-satunya tempat mengatur domain)
+vim deploy/domain.example.json      # → ganti nilai ke domain resmi, hapus .example jadi domain.json
+
+# 2. Jalankan penggantian massal (skrip akan mengganti token di SEMUA berkas di atas)
+node scripts/replace-domain.mjs     # → mengganti REPLACE-WITH-OFFICIAL-* + <DOMAIN>/<PATH_*>
+
+# 3. Verifikasi konsistensi
+npm run landing:check:strict        # exit 0 (tidak ada placeholder tersisa)
+npm run proxy:check -- --strict     # exit 0 (tidak ada placeholder tersisa)
+
+# 4. Deploy
+scp -r landing/*  user@host:<PATH_LANDING>/
+sudo cp deploy/nginx/dudu-landing.conf /etc/nginx/sites-available/
+# isi <PATH_SERT>/<PATH_KEY> dari sertifikat CA (Let's Encrypt)
+```
+
+Catatan: berkas `deploy/domain.example.json` **tidak** berisi nilai domain asli — berkas ini
+template saja. Berkas konfigurasi dengan nilai domain sebenarnya (`deploy/domain.json`) **tidak boleh
+di-commit** dan **tidak pernah** dibuat di sini (tidak ada domain yang dibeli, tidak ada akun
+registrar).
+
+---
+
+## 2. Yang WAJIB ada sebelum konfigurasi ini dipakai
 
 | Placeholder | Ganti dengan | Contoh |
 |---|---|---|

@@ -10,7 +10,7 @@
     "dudu": "server/cli.mjs"
   },
   "author": "Dudu AI",
-  "homepage": "https://example.com/dudu-ai",
+  "homepage": "https://REPLACE-WITH-OFFICIAL-DOMAIN",
   "desktopName": "dudu-ai.desktop",
   "engines": {
     "node": ">=20"
@@ -35,6 +35,7 @@
     "landing:check:strict": "node scripts/check-landing.mjs --strict",
     "proxy:check": "node scripts/check-proxy-config.mjs",
     "proxy:check:strict": "node scripts/check-proxy-config.mjs --strict",
+    "replace-domain": "node scripts/replace-domain.mjs",
     "probe:waiting-list": "node scripts/probe-waiting-list.mjs",
     "verify:ui": "node scripts/verify-ui.mjs",
     "smoke:provider": "node scripts/provider-smoke.mjs",
