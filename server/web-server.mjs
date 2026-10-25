@@ -52,7 +52,7 @@ const serveStatic = (res, urlPath) => {
 }
 
 if (!fs.existsSync(DIST)) { console.error('dist/ tidak ditemukan. Jalankan `npm run build` dulu.'); process.exit(1) }
-// Sisipkan waktu nyata agar model tahu tanggal/jam saat ini
+
 // Sisipkan waktu nyata ke pesan user terakhir (model tidak bisa mengabaikannya)
 const injectTimeContext = (rawBody) => {
   try {
@@ -71,6 +71,7 @@ const injectTimeContext = (rawBody) => {
     return rawBody
   } catch { return rawBody }
 }
+
 const server = http.createServer((req, res) => {
   const urlPath = String(req.url).split('?')[0]
   if (!urlPath.startsWith('/api/')) return serveStatic(res, urlPath)
@@ -86,7 +87,7 @@ const server = http.createServer((req, res) => {
   req.on('end', async () => {
     if (tooLarge) return send(res, { status: 413, body: { error: 'request_too_large' } })
     const bytes = Buffer.concat(chunks)
-    const result = await api.handle({ method: req.method, path: req.url, contentType: req.headers['content-type'], headers: req.headers, body: isUpload ? '' : bytes.toString('utf8'), bytes, signal: ac.signal })
+    const result = await api.handle({ method: req.method, path: req.url, contentType: req.headers['content-type'], headers: req.headers, body: isUpload ? '' : injectTimeContext(bytes.toString('utf8')), bytes, signal: ac.signal })
     send(res, result)
   })
 })
