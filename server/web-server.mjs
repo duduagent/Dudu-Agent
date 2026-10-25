@@ -53,14 +53,20 @@ const serveStatic = (res, urlPath) => {
 
 if (!fs.existsSync(DIST)) { console.error('dist/ tidak ditemukan. Jalankan `npm run build` dulu.'); process.exit(1) }
 // Sisipkan waktu nyata agar model tahu tanggal/jam saat ini
+// Sisipkan waktu nyata ke pesan user terakhir (model tidak bisa mengabaikannya)
 const injectTimeContext = (rawBody) => {
   try {
     const payload = JSON.parse(rawBody || '{}')
+    if (!Array.isArray(payload.messages)) return rawBody
     const waktu = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    const systemBaru = { role: 'system', content: `[KONTEKS WAKTU] Hari ini ${waktu} WIB. Gunakan ini bila ditanya tanggal, hari, atau jam.` }
-    if (Array.isArray(payload.messages)) {
-      payload.messages = [systemBaru, ...payload.messages.filter(m => !(m.role === 'system' && String(m.content).startsWith('[KONTEKS WAKTU]')))]
-      return JSON.stringify(payload)
+    const konteks = `[KONTEKS WAKTU] Saat ini ${waktu} WIB. Jika pengguna bertanya tentang tanggal, hari, atau jam, jawab berdasarkan informasi ini.\n\n`
+    for (let i = payload.messages.length - 1; i >= 0; i--) {
+      const m = payload.messages[i]
+      if (m.role === 'user' && typeof m.content === 'string' && !m.content.includes('[KONTEKS WAKTU]')) {
+        payload.messages[i] = { ...m, content: konteks + m.content }
+        console.log('[waktu-terinject]', waktu)
+        return JSON.stringify(payload)
+      }
     }
     return rawBody
   } catch { return rawBody }
