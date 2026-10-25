@@ -52,7 +52,19 @@ const serveStatic = (res, urlPath) => {
 }
 
 if (!fs.existsSync(DIST)) { console.error('dist/ tidak ditemukan. Jalankan `npm run build` dulu.'); process.exit(1) }
-
+// Sisipkan waktu nyata agar model tahu tanggal/jam saat ini
+const injectTimeContext = (rawBody) => {
+  try {
+    const payload = JSON.parse(rawBody || '{}')
+    const waktu = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    const systemBaru = { role: 'system', content: `[KONTEKS WAKTU] Hari ini ${waktu} WIB. Gunakan ini bila ditanya tanggal, hari, atau jam.` }
+    if (Array.isArray(payload.messages)) {
+      payload.messages = [systemBaru, ...payload.messages.filter(m => !(m.role === 'system' && String(m.content).startsWith('[KONTEKS WAKTU]')))]
+      return JSON.stringify(payload)
+    }
+    return rawBody
+  } catch { return rawBody }
+}
 const server = http.createServer((req, res) => {
   const urlPath = String(req.url).split('?')[0]
   if (!urlPath.startsWith('/api/')) return serveStatic(res, urlPath)
