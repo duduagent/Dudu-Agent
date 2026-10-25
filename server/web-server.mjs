@@ -53,6 +53,56 @@ const serveStatic = (res, urlPath) => {
 
 if (!fs.existsSync(DIST)) { console.error('dist/ tidak ditemukan. Jalankan `npm run build` dulu.'); process.exit(1) }
 
+/* ---------- SEED MULTI-PROVIDER & ROUTING DARI ENV (idempotent) ----------
+   Variabel Railway:
+   DUDU_PROVIDERS=[{"id":"google","key":"AIza..."},{"id":"openrouter","key":"sk-or-..."},{"id":"groq","key":"gsk_..."}]
+   DUDU_ROUTING_MODE=FREE_FIRST   (FREE_ONLY | FREE_FIRST | BEST_VALUE | BEST_QUALITY | MANUAL | ROTATE)
+   DUDU_MAX_FALLBACKS=3           (0–4)
+   DUDU_BUDGET_USD_MONTHLY=0      (0 = belum membatasi; mis. 2 = maks $2/bulan)
+*/
+const MODES = ['FREE_ONLY', 'FREE_FIRST', 'BEST_VALUE', 'BEST_QUALITY', 'MANUAL', 'ROTATE']
+let seededProviders = []
+try { seededProviders = JSON.parse(process.env.DUDU_PROVIDERS || '[]') } catch { console.error('[seed] DUDU_PROVIDERS bukan JSON valid — diabaikan.') }
+if (Array.isArray(seededProviders) && seededProviders.length) {
+  const providersFile = path.join(dataDir, 'providers.json')
+  let store = { version: 1, providers: {} }
+  try { store = JSON.parse(fs.readFileSync(providersFile, 'utf8')) } catch { /* belum ada */ }
+  if (!store || typeof store !== 'object') store = { version: 1, providers: {} }
+  store.providers = (store.providers && typeof store.providers === 'object') ? store.providers : {}
+  for (const p of seededProviders) {
+    const id = String(p?.id ?? '').trim()
+    const key = String(p?.key ?? '').trim()
+    if (!id || key.length < 8) continue
+    const rec = store.providers[id] ?? { id, enabled: false, configured: false, apiKey: null, baseUrl: null, keyUpdatedAt: null, status: null }
+    if (rec.apiKey !== key) {
+      rec.apiKey = key
+      rec.configured = true
+      rec.enabled = true
+      rec.keyUpdatedAt = Date.now()
+      console.log(`[seed] ${id}: kunci API diperbarui dari env`)
+    } else if (rec.configured && !rec.enabled) {
+      rec.enabled = true
+    }
+    if (typeof p.baseUrl === 'string' && p.baseUrl.trim()) rec.baseUrl = p.baseUrl.trim()
+    store.providers[id] = rec
+  }
+  fs.mkdirSync(dataDir, { recursive: true })
+  fs.writeFileSync(providersFile, JSON.stringify(store, null, 2), { mode: 0o600 })
+  console.log('[seed] providers.json diperbarui dari DUDU_PROVIDERS')
+}
+
+const settingsFile = path.join(dataDir, 'routing-settings.json')
+if (!fs.existsSync(settingsFile)) {
+  const mode = MODES.includes(process.env.DUDU_ROUTING_MODE) ? process.env.DUDU_ROUTING_MODE : 'FREE_FIRST'
+  const mf = Number.parseInt(process.env.DUDU_MAX_FALLBACKS ?? '', 10)
+  const maxFallbacks = Number.isFinite(mf) ? Math.min(Math.max(mf, 0), 4) : 3
+  const b = Number(process.env.DUDU_BUDGET_USD_MONTHLY)
+  const budget = Number.isFinite(b) && b >= 0 ? b : 0
+  fs.mkdirSync(dataDir, { recursive: true })
+  fs.writeFileSync(settingsFile, JSON.stringify({ version: 1, defaultMode: mode, maxFallbacks, privacyLocalPreferred: true, budget: { paidUsdMonthly: budget }, manualSelection: null }, null, 2), { mode: 0o600 })
+  console.log(`[seed] routing-settings.json → mode=${mode}, maxFallbacks=${maxFallbacks}, budget=$${budget}/bulan`)
+}
+
 // Sisipkan waktu nyata ke pesan user terakhir (model tidak bisa mengabaikannya)
 const injectTimeContext = (rawBody) => {
   try {
