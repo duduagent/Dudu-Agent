@@ -111,7 +111,11 @@ export function createGateway({ dataDir, credentials, catalog, usage, getConfig 
         source: 'environment_config', fetchedFrom: 'DUDU_MODEL (env/dudu.env)',
       })
     }
-    return { entries, providerStates }
+    // Blokir model tertentu dari kandidat routing (mis. model pensiun yang masih terdaftar di katalog).
+    // Variabel Railway: DUDU_MODEL_BLOCKLIST=gemini-2.5,gemini-2.0,gemini-1.5,preview,exp
+    const BLOCKLIST = String(process.env.DUDU_MODEL_BLOCKLIST || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    const filtered = BLOCKLIST.length ? entries.filter((e) => !BLOCKLIST.some((b) => String(e.id).toLowerCase().includes(b))) : entries
+    return { entries: filtered, providerStates }
   }
 
   async function budgetStatus() {
