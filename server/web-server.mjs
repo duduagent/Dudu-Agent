@@ -1,334 +1,147 @@
-// DUDU AI GATEWAY — satu-satunya jalur pemanggilan LLM dari semua modul Dudu.
-// Chat, misi, dan workforce mengarah ke sini (bukan memanggil provider langsung).
-//
-// Tanggung jawab:
-//  1. Kebijakan routing (mode default + budget) tersimpan di <dataDir>/routing-settings.json.
-//  2. Klasifikasi task heuristik (tanpa panggilan LLM — hemat token).
-//  3. Kandidat dari katalog model provider aktif (metadata resmi provider; tier free/paid/unknown/local).
-//  4. Guard budget: habis → model berbayar diblokir; kandidat free/local tetap boleh.
-//  5. Pemanggilan adapter provider dengan fallback terkendali (dibatasi maxFallbacks).
-//  6. Usage dicatat ke ledger dengan provenance jujur (PROVIDER_REPORTED vs ESTIMATED).
-//  7. Tidak mengarang data kuota/harga; yang tidak diketahui tetap UNKNOWN/NONE.
-//  8. Provider "env" = konfigurasi legacy DUDU_* (dudu.env), diperlakukan HONEST sebagai tier 'unknown'.
-import fsp from 'node:fs/promises'
+// server/web-server.mjs — mode produksi web (Railway/VPS):
+// satu proses Node melayani (1) API Dudu dan (2) berkas statis frontend hasil `vite build`.
+// Aplikasi desktop TIDAK memakai file ini.
+import http from 'node:http'
+import fs from 'node:fs'
 import path from 'node:path'
-import { getProviderDef, validateBaseUrl, asFetch, envAdapter } from './providers.mjs'
-import { ProviderConfigError, ProviderRequestError, PolicyError, DuduError } from './errors.mjs'
-import { classifyTask, selectModel, nextFallback, ROUTING_MODES, defaultMaxTokens } from './routing.mjs'
-import { USAGE_PROVENANCE, COST_PROVENANCE, estimateTokensFromChars } from './usage.mjs'
+import { createApi } from './api.mjs'
+import { MAX_BODY_BYTES } from './chat-api.mjs'
+import { parseEnvFile, resolveConfig } from './config.mjs'
 
-export const SETTINGS_FILE = 'routing-settings.json'
-const ROTATION_FILE = 'rotation-state.json'
+const HOST = '0.0.0.0' // Railway: wajib mendengar semua interface, bukan loopback
+const DIST = path.resolve(process.cwd(), 'dist')
 
-export const DEFAULT_SETTINGS = {
-  version: 1,
-  defaultMode: 'FREE_FIRST',
-  maxFallbacks: 2,
-  privacyLocalPreferred: true,
-  budget: { paidUsdMonthly: 0 }, // 0 = anggaran belum diset → belum membatasi apa pun (dilaporkan 'unset', bukan 'ok')
-  manualSelection: null, // { providerId, modelId } — dipakai bila defaultMode === 'MANUAL'
+let fileValues = {}
+try { fileValues = parseEnvFile(fs.readFileSync('.env', 'utf8')) } catch { /* .env opsional */ }
+const config = resolveConfig(process.env, fileValues)
+const dataDir = path.resolve(process.env.DUDU_DATA_DIR || '.dudu-data')
+const api = createApi({ getConfig: () => config, dataDir })
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
 }
 
-export function normalizeSettings(raw) {
-  const mode = ROUTING_MODES.includes(raw?.defaultMode) ? raw.defaultMode : DEFAULT_SETTINGS.defaultMode
-  const maxFallbacks = Number.isFinite(raw?.maxFallbacks) && raw.maxFallbacks >= 0 ? Math.min(Math.floor(raw.maxFallbacks), 4) : 2
-  const paidUsdMonthly = Number.isFinite(Number(raw?.budget?.paidUsdMonthly)) && Number(raw.budget.paidUsdMonthly) >= 0 ? Number(raw.budget.paidUsdMonthly) : 0
-  const manualSelection = (raw?.manualSelection && typeof raw.manualSelection.providerId === 'string' && typeof raw.manualSelection.modelId === 'string')
-    ? { providerId: raw.manualSelection.providerId, modelId: raw.manualSelection.modelId } : null
-  return { version: 1, defaultMode: mode, maxFallbacks, privacyLocalPreferred: raw?.privacyLocalPreferred !== false, budget: { paidUsdMonthly }, manualSelection }
+const send = (res, result) => {
+  if (res.writableEnded || res.destroyed) return
+  if (result.raw) { res.writeHead(result.status, { ...result.headers, 'Content-Length': result.raw.length }); return res.end(result.raw) }
+  res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8' })
+  res.end(JSON.stringify(result.body))
 }
 
-export function createGateway({ dataDir, credentials, catalog, usage, getConfig = () => ({ apiKey: null, model: null, baseUrl: null, visionModel: null }), fs = fsp, fetchImpl = globalThis.fetch, now = Date.now, log = (...a) => console.error(...a) }) {
-  const settingsFile = path.join(dataDir, SETTINGS_FILE)
-  let settingsCache = null
-
-  async function readSettings() {
-    if (settingsCache) return settingsCache
-    try {
-      const raw = JSON.parse(await fs.readFile(settingsFile, 'utf8'))
-      if (raw && raw.version === 1) { settingsCache = normalizeSettings(raw); return settingsCache }
-    } catch { /* belum ada */ }
-    settingsCache = normalizeSettings(DEFAULT_SETTINGS)
-    return settingsCache
-  }
-
-  async function updateSettings(patch) {
-    const cur = await readSettings()
-    const next = normalizeSettings({
-      ...cur,
-      ...patch,
-      budget: { ...cur.budget, ...(patch?.budget ?? {}) },
-      ...(patch?.manualSelection !== undefined ? { manualSelection: patch.manualSelection } : {}),
-    })
-    settingsCache = next
-    await fs.mkdir(dataDir, { recursive: true })
-    const tmp = `${settingsFile}.${process.pid}.tmp`
-    await fs.writeFile(tmp, JSON.stringify(next), { mode: 0o600 })
-    await fs.rename(tmp, settingsFile)
-    return next
-  }
-
-  /** Katalog gabungan + provider aktif. Katalog yang belum dimuat tidak dihakimi: tidak diarang.
-   *  Sebelum membaca, katalog provider aktif yang masih kosong di-"warm" (maks 1× per 60 detik per provider)
-   *  agar chat langsung jalan setelah kunci disimpan — tanpa tebakan model. */
-  const warmTriedAt = new Map()
-  async function warmCatalogs() {
-    const summary = await catalog.allProvidersSummary()
-    const snap = await credentials.snapshot()
-    for (const [id, st] of Object.entries(snap)) {
-      if (!st.enabled) continue
-      const rec = summary[id]
-      if (rec && rec.count > 0) continue
-      const last = warmTriedAt.get(id) ?? 0
-      if (now() - last < 60_000) continue
-      warmTriedAt.set(id, now())
-      try {
-        const def = getProviderDef(id)
-        if (!def) continue
-        await catalog.refresh(id, await credentials.credentialFor(id, def.defaultBaseUrl))
-      } catch { /* provider tidak terjangkau: status nyata tetap di kartu provider (Uji koneksi / Muat katalog) */ }
-    }
-  }
-
-  async function effectiveCatalogEntries() {
-    await warmCatalogs()
-    const snap = await credentials.snapshot()
-    const entries = []
-    const providerStates = {}
-    for (const [id, st] of Object.entries(snap)) {
-      providerStates[id] = st
-      if (!st.enabled) continue
-      const { models } = await catalog.list(id, { allowStale: true })
-      entries.push(...(models ?? []).map((m) => ({ ...m, providerId: id })))
-    }
-    const cfg = getConfig()
-    // Provider env legacy: satu model dari dudu.env / .env. Tier 'unknown' — tidak diklaim gratis.
-    if (cfg.apiKey && cfg.model) {
-      entries.push({
-        id: cfg.model, name: cfg.model, providerId: 'env', tier: 'unknown',
-        pricing: null, contextWindow: null,
-        capabilities: { vision: cfg.visionModel ? true : null, tools: null },
-        source: 'environment_config', fetchedFrom: 'DUDU_MODEL (env/dudu.env)',
-      })
-    }
-    // Blokir model tertentu dari kandidat routing (mis. model pensiun yang masih terdaftar di katalog).
-    // Variabel Railway: DUDU_MODEL_BLOCKLIST=gemini-2.5,gemini-2.0,gemini-1.5,preview,exp
-    const BLOCKLIST = String(process.env.DUDU_MODEL_BLOCKLIST || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
-    const filtered = BLOCKLIST.length ? entries.filter((e) => !BLOCKLIST.some((b) => String(e.id).toLowerCase().includes(b))) : entries
-    return { entries: filtered, providerStates }
-  }
-
-  async function budgetStatus() {
-    const s = await readSettings()
-    const snap = await usage.summary({ budget: { paidUsdMonthly: s.budget.paidUsdMonthly }, now })
-    return snap.budget
-  }
-
-  /* ---------- kursor perputaran (ROTATE): { [kategori task]: jumlah pemilihan } ---------- */
-  let rotationCache = null
-  async function readRotationCursor(category) {
-    try {
-      if (!rotationCache) {
-        const raw = JSON.parse(await fs.readFile(path.join(dataDir, ROTATION_FILE), 'utf8'))
-        rotationCache = (raw && typeof raw === 'object' && raw.version === 1 && typeof raw.counts === 'object') ? raw : { version: 1, counts: {} }
-      }
-      return Number(rotationCache.counts[category]) || 0
-    } catch { return 0 }
-  }
-  async function bumpRotation(category, next) {
-    try {
-      rotationCache ??= { version: 1, counts: {} }
-      rotationCache.counts[category] = next
-      const file = path.join(dataDir, ROTATION_FILE)
-      await fs.mkdir(dataDir, { recursive: true })
-      const tmp = `${file}.${process.pid}.tmp`
-      await fs.writeFile(tmp, JSON.stringify(rotationCache), 'utf8')
-      await fs.rename(tmp, file)
-    } catch { /* kursor gagal disimpan: rotasi tetap berjalan dari cache memori */ }
-  }
-
-  async function callProvider(providerId, cred, { modelId, messages, signal, maxTokens }) {
-    if (providerId === 'env') {
-      // Provider env legacy: konfigurasi datang dari dudu.env / .env (bukan registry).
-      return envAdapter.chat(cred, { model: modelId, messages, signal, maxTokens }, asFetch(fetchImpl))
-    }
-    const def = getProviderDef(providerId)
-    if (!def) throw new DuduError(400, 'provider_unknown', `Provider ${providerId} tidak terdaftar.`)
-    const effective = { apiKey: cred.apiKey, baseUrl: cred.baseUrl || def.defaultBaseUrl }
-    if (def.needsCustomBaseUrl && !effective.baseUrl) throw new ProviderConfigError('Endpoint custom belum memiliki baseUrl.')
-    const v = validateBaseUrl(effective.baseUrl)
-    if (!v.ok) throw new ProviderConfigError(`BaseUrl tidak valid: ${v.reason}`)
-    return def.adapter.chat(effective, {
-      model: modelId, messages, signal, maxTokens,
-      usageInclude: providerId === 'openrouter', // OpenRouter: minta usage+cost aktual dilaporkan
-    }, asFetch(fetchImpl))
-  }
-
-  /** Estimasi token lokal (dilabeli ESTIMATED — bukan angka provider). */
-  function estimatedUsage(messages, content) {
-    const inputChars = messages.reduce((a, m) => a + Math.ceil(String(m.content ?? '').length / 4), 0)
-    return {
-      usage: { input: estimateTokensFromChars(inputChars), output: estimateTokensFromChars(String(content ?? '').length), total: null, cached: null },
-      usageProvenance: USAGE_PROVENANCE.ESTIMATED,
-    }
-  }
-
-  /** Biaya dengan provenance: PROVIDER_REPORTED_COST > COMPUTED_FROM_CATALOG_PRICING > NONE. */
-  function computeCost(providerId, providerResult, catalogEntry) {
-    if (providerResult && Number.isFinite(providerResult.cost)) return { amount: providerResult.cost, currency: 'USD', provenance: COST_PROVENANCE.PROVIDER_REPORTED_COST }
-    const p = catalogEntry?.pricing
-    if (catalogEntry?.tier === 'local') return { amount: 0, currency: 'USD', provenance: COST_PROVENANCE.PROVIDER_REPORTED_COST } // inferensi lokal memang tanpa biaya API
-    if (p && providerResult && (Number.isFinite(providerResult.usage?.input) || Number.isFinite(providerResult.usage?.output))) {
-      const amount = ((providerResult.usage.input ?? 0) / 1e6) * p.inputPer1M + ((providerResult.usage.output ?? 0) / 1e6) * p.outputPer1M
-      return { amount, currency: p.currency ?? 'USD', provenance: COST_PROVENANCE.COMPUTED_FROM_CATALOG_PRICING }
-    }
-    return { amount: null, currency: 'USD', provenance: COST_PROVENANCE.NONE }
-  }
-
-  /**
-   * Permintaan LLM utama lewat routing + guard budget + fallback terkendali + pencatatan.
-   * @param {{ messages: Array<{role: 'system'|'user'|'assistant', content: string}>, purpose?: 'chat'|'mission',
-   *   conversationId?: string, missionId?: string, mode?: string, manualSelection?: {providerId, modelId}|null,
-   *   requiresVision?: boolean, maxTokens?: number, signal?: AbortSignal }} req
-   */
-  async function complete(req) {
-    const s = await readSettings()
-    const mode = ROUTING_MODES.includes(req.mode) ? req.mode : s.defaultMode
-    const manual = mode === 'MANUAL' ? (req.manualSelection ?? s.manualSelection) : null
-    const { entries, providerStates } = await effectiveCatalogEntries()
-    const lastUser = [...req.messages].reverse().find((m) => m.role === 'user')
-    const task = classifyTask(String(lastUser?.content ?? ''), { hasImages: req.requiresVision === true })
-    const budget = await budgetStatus()
-
-    const state = selectModel({
-      mode, manualSelection: manual, task,
-      catalogEntries: entries, budgetStatus: budget,
-      maxFallbacks: s.maxFallbacks,
-      rotationCursor: mode === 'ROTATE' ? await readRotationCursor(task.category) : 0,
-    })
-    if (state.error) {
-      const err = new PolicyError(state.error, `${state.error}. ${state.detail ?? ''}`.trim(), state.error === 'budget_exceeded' ? 402 : 409)
-      err.route = { mode, task, budget: { state: budget.state, cap: budget.cap, spent: budget.spent }, reason: state.detail }
-      throw err
-    }
-    // Perputaran: kursor maju per kategori task agar pemakaian menyebar ke semua kandidat yang cocok.
-    if (mode === 'ROTATE' && Number.isFinite(state.nextRotation)) void bumpRotation(task.category, state.nextRotation)
-    const maxTokens = Number.isFinite(req.maxTokens) && req.maxTokens > 0 ? req.maxTokens : defaultMaxTokens(task)
-
-    const failures = []
-    const fallbackChain = []
-    let result = null
-    let chosenState = { ...state, fallbackCount: 0, budgetStatus: budget, usedSet: new Set(), escalationReason: state.escalationReason ?? null }
-
-    for (;;) {
-      const chosen = chosenState.chosen
-      const providerId = chosen.providerId
-      const def = getProviderDef(providerId)
-      if (providerId !== 'env' && !def) throw new DuduError(400, 'provider_unknown', `Provider ${providerId} tidak terdaftar.`)
-      if (providerId !== 'env' && !providerStates[providerId]?.enabled) {
-        throw new PolicyError('provider_disabled', `Provider ${def.label} tidak diaktifkan; tidak bisa dipakai untuk routing.`)
-      }
-      const resolved = providerId === 'env' ? resolveEnv(chosen) : {
-        cred: await credentials.credentialFor(providerId, def.defaultBaseUrl),
-        modelId: chosen.id,
-      }
-      try {
-        result = await callProvider(providerId, resolved.cred, { modelId: resolved.modelId, messages: req.messages, signal: req.signal, maxTokens })
-        break
-      } catch (e) {
-        if (e?.name === 'AbortError') throw e
-        const errStatus = e?.upstreamStatus ?? 0
-        const reason = `${providerId}/${resolved.modelId} gagal: ${String(e?.message || e).slice(0, 160)}`
-        failures.push({ providerId, modelId: resolved.modelId, reason, status: errStatus })
-        const next = nextFallback(chosenState, chosen)
-        if (!next) {
-          const err = new ProviderRequestError(
-            `Semua kandidat routing gagal. ${failures.map((f) => f.reason).join(' | ')}`,
-            errStatus || 502,
-          )
-          err.route = { mode, task, budget: { state: budget.state, cap: budget.cap, spent: budget.spent }, attempts: failures.map((f) => `${f.providerId}/${f.modelId}: ${f.reason}`), escalationReason: chosenState.escalationReason, reason: chosenState.reason }
-          throw err
-        }
-        fallbackChain.push(chosenState.lastFallbackReason ?? `${providerId}/${resolved.modelId} → ${next.chosen.providerId}/${next.chosen.id}`)
-        chosenState = next
-      }
-    }
-
-    const chosen = chosenState.chosen
-    const providerId = chosen.providerId
-    const requestModelId = providerId === 'env' ? getConfig().model : chosen.id
-
-    // Provenance token: provider-reported bila ada; bila tidak, ESTIMATED (dilabeli).
-    const usageRec = (result?.usage && (Number.isFinite(result.usage.input) || Number.isFinite(result.usage.output)))
-      ? {
-          usage: {
-            input: Number.isFinite(result.usage.input) ? result.usage.input : null,
-            output: Number.isFinite(result.usage.output) ? result.usage.output : null,
-            total: Number.isFinite(result.usage.total) ? result.usage.total : null,
-            cached: Number.isFinite(result.usage.cached) ? result.usage.cached : null,
-          },
-          usageProvenance: USAGE_PROVENANCE.PROVIDER_REPORTED,
-        }
-      : estimatedUsage(req.messages, result?.content)
-
-    const costRec = computeCost(providerId, result, chosen)
-    const tier = providerId === 'env' ? 'unknown' : chosen.tier
-    const costFinal = costRec
-
-    await usage.record({
-      providerId, modelId: requestModelId ?? chosen.id, kind: 'chat', tier, status: 'success',
-      usage: usageRec.usage, usageProvenance: usageRec.usageProvenance,
-      cost: costFinal, fallback: fallbackChain,
-      escalationReason: chosenState.escalationReason, mode,
-      purpose: req.purpose ?? 'chat', conversationId: req.conversationId, missionId: req.missionId,
-    })
-
-    const route = {
-      mode,
-      task: { category: task.category, complexity: task.complexity, requiresVision: task.requiresVision, requiresTools: task.requiresTools },
-      providerId, modelId: requestModelId ?? chosen.id, tier,
-      reason: chosenState.reason,
-      escalationReason: chosenState.escalationReason ?? null,
-      fallback: fallbackChain.length ? fallbackChain : undefined,
-      attempts: failures.length ? failures.map((f) => `${f.providerId}/${f.modelId}: ${f.reason}`) : undefined,
-      considered: (state.considered ?? []).map((m) => `${m.providerId}/${m.id} (${m.tier})`).slice(0, 6),
-      budget: { state: budget.state, cap: budget.cap, spent: budget.spent },
-      usageProvenance: usageRec.usageProvenance,
-      costProvenance: costFinal.provenance,
-      maxTokens,
-      estimated: usageRec.usageProvenance === USAGE_PROVENANCE.ESTIMATED,
-    }
-    return {
-      content: result?.content ?? '',
-      model: typeof result?.model === 'string' ? result.model : requestModelId,
-      providerId, modelId: requestModelId ?? chosen.id, tier,
-      usage: usageRec, cost: costFinal,
-      route,
-    }
-  }
-
-  function resolveEnv(chosen) {
-    const cfg = getConfig()
-    if (!cfg.apiKey || !cfg.model) throw new ProviderConfigError('Konfigurasi env (DUDU_PROVIDER_API_KEY) belum lengkap; provider env tidak bisa dipakai.')
-    return { cred: { apiKey: cfg.apiKey, baseUrl: cfg.baseUrl }, modelId: chosen.id }
-  }
-
-  /** Uji koneksi provider memakai adapter resmi; hasil disimpan sebagai status kredensial. */
-  async function testProvider(providerId) {
-    const def = getProviderDef(providerId)
-    if (!def) return { ok: false, reason: 'Provider tidak dikenal.' }
-    const cred = await credentials.credentialFor(providerId, def.defaultBaseUrl)
-    if (def.needsCustomBaseUrl && !cred.baseUrl) return { ok: false, reason: 'Endpoint custom belum memiliki baseUrl (atur dulu di Pengaturan).' }
-    if (def.requiresApiKey && !cred.apiKey) return { ok: false, reason: 'Kunci API belum diatur.' }
-    const result = await def.adapter.testConnection(cred, asFetch(fetchImpl))
-    await credentials.recordTest(providerId, { ok: Boolean(result.ok), status: result.status, reason: result.reason })
-    return { ...result, testedAt: now() }
-  }
-
-  return {
-    complete, testProvider,
-    readSettings, updateSettings,
-    effectiveCatalogEntries, budgetStatus,
-    settingsFile,
-  }
+const serveStatic = (res, urlPath) => {
+  let filePath
+  try { filePath = path.join(DIST, decodeURIComponent(urlPath)) } catch { res.writeHead(400); return res.end('bad request') }
+  if (!filePath.startsWith(DIST + path.sep)) { res.writeHead(403); return res.end('forbidden') }
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) filePath = path.join(DIST, 'index.html')
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream' })
+  fs.createReadStream(filePath).pipe(res)
 }
+
+if (!fs.existsSync(DIST)) { console.error('dist/ tidak ditemukan. Jalankan `npm run build` dulu.'); process.exit(1) }
+
+/* ---------- SEED MULTI-PROVIDER & ROUTING DARI ENV (idempotent) ----------
+   Variabel Railway:
+   DUDU_PROVIDERS=[{"id":"google","key":"AIza..."},{"id":"openrouter","key":"sk-or-..."},{"id":"groq","key":"gsk_..."}]
+   DUDU_ROUTING_MODE=FREE_FIRST   (FREE_ONLY | FREE_FIRST | BEST_VALUE | BEST_QUALITY | MANUAL | ROTATE)
+   DUDU_MAX_FALLBACKS=3           (0–4)
+   DUDU_BUDGET_USD_MONTHLY=0      (0 = belum membatasi; mis. 2 = maks $2/bulan)
+*/
+const MODES = ['FREE_ONLY', 'FREE_FIRST', 'BEST_VALUE', 'BEST_QUALITY', 'MANUAL', 'ROTATE']
+let seededProviders = []
+try { seededProviders = JSON.parse(process.env.DUDU_PROVIDERS || '[]') } catch { console.error('[seed] DUDU_PROVIDERS bukan JSON valid — diabaikan.') }
+if (Array.isArray(seededProviders) && seededProviders.length) {
+  const providersFile = path.join(dataDir, 'providers.json')
+  let store = { version: 1, providers: {} }
+  try { store = JSON.parse(fs.readFileSync(providersFile, 'utf8')) } catch { /* belum ada */ }
+  if (!store || typeof store !== 'object') store = { version: 1, providers: {} }
+  store.providers = (store.providers && typeof store.providers === 'object') ? store.providers : {}
+  for (const p of seededProviders) {
+    const id = String(p?.id ?? '').trim()
+    const key = String(p?.key ?? '').trim()
+    if (!id || key.length < 8) continue
+    const rec = store.providers[id] ?? { id, enabled: false, configured: false, apiKey: null, baseUrl: null, keyUpdatedAt: null, status: null }
+    if (rec.apiKey !== key) {
+      rec.apiKey = key
+      rec.configured = true
+      rec.enabled = true
+      rec.keyUpdatedAt = Date.now()
+      console.log(`[seed] ${id}: kunci API diperbarui dari env`)
+    } else if (rec.configured && !rec.enabled) {
+      rec.enabled = true
+    }
+    if (typeof p.baseUrl === 'string' && p.baseUrl.trim()) rec.baseUrl = p.baseUrl.trim()
+    store.providers[id] = rec
+  }
+  fs.mkdirSync(dataDir, { recursive: true })
+  fs.writeFileSync(providersFile, JSON.stringify(store, null, 2), { mode: 0o600 })
+  console.log('[seed] providers.json diperbarui dari DUDU_PROVIDERS')
+}
+
+const settingsFile = path.join(dataDir, 'routing-settings.json')
+if (!fs.existsSync(settingsFile)) {
+  const mode = MODES.includes(process.env.DUDU_ROUTING_MODE) ? process.env.DUDU_ROUTING_MODE : 'FREE_FIRST'
+  const mf = Number.parseInt(process.env.DUDU_MAX_FALLBACKS ?? '', 10)
+  const maxFallbacks = Number.isFinite(mf) ? Math.min(Math.max(mf, 0), 4) : 3
+  const b = Number(process.env.DUDU_BUDGET_USD_MONTHLY)
+  const budget = Number.isFinite(b) && b >= 0 ? b : 0
+  fs.mkdirSync(dataDir, { recursive: true })
+  fs.writeFileSync(settingsFile, JSON.stringify({ version: 1, defaultMode: mode, maxFallbacks, privacyLocalPreferred: true, budget: { paidUsdMonthly: budget }, manualSelection: null }, null, 2), { mode: 0o600 })
+  console.log(`[seed] routing-settings.json → mode=${mode}, maxFallbacks=${maxFallbacks}, budget=$${budget}/bulan`)
+}
+
+// Sisipkan waktu nyata ke pesan user terakhir (model tidak bisa mengabaikannya)
+const injectTimeContext = (rawBody) => {
+  try {
+    const payload = JSON.parse(rawBody || '{}')
+    if (!Array.isArray(payload.messages)) return rawBody
+    const waktu = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    const konteks = `[KONTEKS WAKTU] Saat ini ${waktu} WIB. Jika pengguna bertanya tentang tanggal, hari, atau jam, jawab berdasarkan informasi ini.\n\n`
+    for (let i = payload.messages.length - 1; i >= 0; i--) {
+      const m = payload.messages[i]
+      if (m.role === 'user' && typeof m.content === 'string' && !m.content.includes('[KONTEKS WAKTU]')) {
+        payload.messages[i] = { ...m, content: konteks + m.content }
+        console.log('[waktu-terinject]', waktu)
+        return JSON.stringify(payload)
+      }
+    }
+    return rawBody
+  } catch { return rawBody }
+}
+
+const server = http.createServer((req, res) => {
+  const urlPath = String(req.url).split('?')[0]
+  if (!urlPath.startsWith('/api/')) return serveStatic(res, urlPath)
+
+  const ac = new AbortController()
+  res.on('close', () => { if (!res.writableFinished) ac.abort() })
+  const isUpload = req.method === 'POST' && urlPath === '/api/files'
+  const limit = isUpload ? config.maxUploadBytes : MAX_BODY_BYTES
+  const chunks = []
+  let size = 0
+  let tooLarge = false
+  req.on('data', (chunk) => { size += chunk.length; if (size > limit) { tooLarge = true; return } chunks.push(chunk) })
+  req.on('end', async () => {
+    if (tooLarge) return send(res, { status: 413, body: { error: 'request_too_large' } })
+    const bytes = Buffer.concat(chunks)
+    const result = await api.handle({ method: req.method, path: req.url, contentType: req.headers['content-type'], headers: req.headers, body: isUpload ? '' : injectTimeContext(bytes.toString('utf8')), bytes, signal: ac.signal })
+    send(res, result)
+  })
+})
+
+server.listen(config.port, HOST, () => {
+  console.log(`Dudu web → http://${HOST}:${config.port} | provider: ${config.apiKey ? 'TERKONFIGURASI' : 'BELUM DIKONFIGURASI'} | data: ${dataDir}`)
+})
