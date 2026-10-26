@@ -218,4 +218,117 @@ export function createGateway({ dataDir, credentials, catalog, usage, getConfig 
     const failures = []
     const fallbackChain = []
     let result = null
-    let chosenState = { ...state, fallbackCount:
+    let chosenState = { ...state, fallbackCount: 0, budgetStatus: budget, usedSet: new Set(), escalationReason: state.escalationReason ?? null }
+
+    for (;;) {
+      const chosen = chosenState.chosen
+      const providerId = chosen.providerId
+      const def = getProviderDef(providerId)
+      if (providerId !== 'env' && !def) throw new DuduError(400, 'provider_unknown', `Provider ${providerId} tidak terdaftar.`)
+      if (providerId !== 'env' && !providerStates[providerId]?.enabled) {
+        throw new PolicyError('provider_disabled', `Provider ${def.label} tidak diaktifkan; tidak bisa dipakai untuk routing.`)
+      }
+      const resolved = providerId === 'env' ? resolveEnv(chosen) : {
+        cred: await credentials.credentialFor(providerId, def.defaultBaseUrl),
+        modelId: chosen.id,
+      }
+      try {
+        result = await callProvider(providerId, resolved.cred, { modelId: resolved.modelId, messages: req.messages, signal: req.signal, maxTokens })
+        break
+      } catch (e) {
+        if (e?.name === 'AbortError') throw e
+        const errStatus = e?.upstreamStatus ?? 0
+        const reason = `${providerId}/${resolved.modelId} gagal: ${String(e?.message || e).slice(0, 160)}`
+        failures.push({ providerId, modelId: resolved.modelId, reason, status: errStatus })
+        const next = nextFallback(chosenState, chosen)
+        if (!next) {
+          const err = new ProviderRequestError(
+            `Semua kandidat routing gagal. ${failures.map((f) => f.reason).join(' | ')}`,
+            errStatus || 502,
+          )
+          err.route = { mode, task, budget: { state: budget.state, cap: budget.cap, spent: budget.spent }, attempts: failures.map((f) => `${f.providerId}/${f.modelId}: ${f.reason}`), escalationReason: chosenState.escalationReason, reason: chosenState.reason }
+          throw err
+        }
+        fallbackChain.push(chosenState.lastFallbackReason ?? `${providerId}/${resolved.modelId} → ${next.chosen.providerId}/${next.chosen.id}`)
+        chosenState = next
+      }
+    }
+
+    const chosen = chosenState.chosen
+    const providerId = chosen.providerId
+    const requestModelId = providerId === 'env' ? getConfig().model : chosen.id
+
+    // Provenance token: provider-reported bila ada; bila tidak, ESTIMATED (dilabeli).
+    const usageRec = (result?.usage && (Number.isFinite(result.usage.input) || Number.isFinite(result.usage.output)))
+      ? {
+          usage: {
+            input: Number.isFinite(result.usage.input) ? result.usage.input : null,
+            output: Number.isFinite(result.usage.output) ? result.usage.output : null,
+            total: Number.isFinite(result.usage.total) ? result.usage.total : null,
+            cached: Number.isFinite(result.usage.cached) ? result.usage.cached : null,
+          },
+          usageProvenance: USAGE_PROVENANCE.PROVIDER_REPORTED,
+        }
+      : estimatedUsage(req.messages, result?.content)
+
+    const costRec = computeCost(providerId, result, chosen)
+    const tier = providerId === 'env' ? 'unknown' : chosen.tier
+    const costFinal = costRec
+
+    await usage.record({
+      providerId, modelId: requestModelId ?? chosen.id, kind: 'chat', tier, status: 'success',
+      usage: usageRec.usage, usageProvenance: usageRec.usageProvenance,
+      cost: costFinal, fallback: fallbackChain,
+      escalationReason: chosenState.escalationReason, mode,
+      purpose: req.purpose ?? 'chat', conversationId: req.conversationId, missionId: req.missionId,
+    })
+
+    const route = {
+      mode,
+      task: { category: task.category, complexity: task.complexity, requiresVision: task.requiresVision, requiresTools: task.requiresTools },
+      providerId, modelId: requestModelId ?? chosen.id, tier,
+      reason: chosenState.reason,
+      escalationReason: chosenState.escalationReason ?? null,
+      fallback: fallbackChain.length ? fallbackChain : undefined,
+      attempts: failures.length ? failures.map((f) => `${f.providerId}/${f.modelId}: ${f.reason}`) : undefined,
+      considered: (state.considered ?? []).map((m) => `${m.providerId}/${m.id} (${m.tier})`).slice(0, 6),
+      budget: { state: budget.state, cap: budget.cap, spent: budget.spent },
+      usageProvenance: usageRec.usageProvenance,
+      costProvenance: costFinal.provenance,
+      maxTokens,
+      estimated: usageRec.usageProvenance === USAGE_PROVENANCE.ESTIMATED,
+    }
+    return {
+      content: result?.content ?? '',
+      model: typeof result?.model === 'string' ? result.model : requestModelId,
+      providerId, modelId: requestModelId ?? chosen.id, tier,
+      usage: usageRec, cost: costFinal,
+      route,
+    }
+  }
+
+  function resolveEnv(chosen) {
+    const cfg = getConfig()
+    if (!cfg.apiKey || !cfg.model) throw new ProviderConfigError('Konfigurasi env (DUDU_PROVIDER_API_KEY) belum lengkap; provider env tidak bisa dipakai.')
+    return { cred: { apiKey: cfg.apiKey, baseUrl: cfg.baseUrl }, modelId: chosen.id }
+  }
+
+  /** Uji koneksi provider memakai adapter resmi; hasil disimpan sebagai status kredensial. */
+  async function testProvider(providerId) {
+    const def = getProviderDef(providerId)
+    if (!def) return { ok: false, reason: 'Provider tidak dikenal.' }
+    const cred = await credentials.credentialFor(providerId, def.defaultBaseUrl)
+    if (def.needsCustomBaseUrl && !cred.baseUrl) return { ok: false, reason: 'Endpoint custom belum memiliki baseUrl (atur dulu di Pengaturan).' }
+    if (def.requiresApiKey && !cred.apiKey) return { ok: false, reason: 'Kunci API belum diatur.' }
+    const result = await def.adapter.testConnection(cred, asFetch(fetchImpl))
+    await credentials.recordTest(providerId, { ok: Boolean(result.ok), status: result.status, reason: result.reason })
+    return { ...result, testedAt: now() }
+  }
+
+  return {
+    complete, testProvider,
+    readSettings, updateSettings,
+    effectiveCatalogEntries, budgetStatus,
+    settingsFile,
+  }
+}
