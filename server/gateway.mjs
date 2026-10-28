@@ -1,0 +1,349 @@
+// DUDU AI GATEWAY — satu-satunya jalur pemanggilan LLM dari semua modul Dudu.
+// Chat, misi, dan workforce mengarah ke sini (bukan memanggil provider langsung).
+//
+// Tanggung jawab:
+//  1. Kebijakan routing (mode default + budget) tersimpan di <dataDir>/routing-settings.json.
+//  2. Klasifikasi task heuristik (tanpa panggilan LLM — hemat token).
+//  3. Kandidat dari katalog model provider aktif (metadata resmi provider; tier free/paid/unknown/local).
+//  4. Guard budget: habis → model berbayar diblokir; kandidat free/local tetap boleh.
+//  5. Pemanggilan adapter provider dengan fallback terkendali (dibatasi maxFallbacks).
+//  6. Usage dicatat ke ledger dengan provenance jujur (PROVIDER_REPORTED vs ESTIMATED).
+//  7. Tidak mengarang data kuota/harga; yang tidak diketahui tetap UNKNOWN/NONE.
+//  8. Provider "env" = konfigurasi legacy DUDU_* (dudu.env), diperlakukan HONEST sebagai tier 'unknown'.
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+import { getProviderDef, validateBaseUrl, asFetch, envAdapter } from './providers.mjs'
+import { ProviderConfigError, ProviderRequestError, PolicyError, DuduError } from './errors.mjs'
+import { classifyTask, selectModel, nextFallback, ROUTING_MODES, defaultMaxTokens } from './routing.mjs'
+import { USAGE_PROVENANCE, COST_PROVENANCE, estimateTokensFromChars } from './usage.mjs'
+
+export const SETTINGS_FILE = 'routing-settings.json'
+const ROTATION_FILE = 'rotation-state.json'
+
+export const DEFAULT_SETTINGS = {
+  version: 1,
+  defaultMode: 'FREE_FIRST',
+  maxFallbacks: 2,
+  privacyLocalPreferred: true,
+  budget: { paidUsdMonthly: 0 }, // 0 = anggaran belum diset → belum membatasi apa pun (dilaporkan 'unset', bukan 'ok')
+  manualSelection: null, // { providerId, modelId } — dipakai bila defaultMode === 'MANUAL'
+}
+
+export function normalizeSettings(raw) {
+  const mode = ROUTING_MODES.includes(raw?.defaultMode) ? raw.defaultMode : DEFAULT_SETTINGS.defaultMode
+  const maxFallbacks = Number.isFinite(raw?.maxFallbacks) && raw.maxFallbacks >= 0 ? Math.min(Math.floor(raw.maxFallbacks), 4) : 2
+  const paidUsdMonthly = Number.isFinite(Number(raw?.budget?.paidUsdMonthly)) && Number(raw.budget.paidUsdMonthly) >= 0 ? Number(raw.budget.paidUsdMonthly) : 0
+  const manualSelection = (raw?.manualSelection && typeof raw.manualSelection.providerId === 'string' && typeof raw.manualSelection.modelId === 'string')
+    ? { providerId: raw.manualSelection.providerId, modelId: raw.manualSelection.modelId } : null
+  return { version: 1, defaultMode: mode, maxFallbacks, privacyLocalPreferred: raw?.privacyLocalPreferred !== false, budget: { paidUsdMonthly }, manualSelection }
+}
+
+export function createGateway({ dataDir, credentials, catalog, usage, getConfig = () => ({ apiKey: null, model: null, baseUrl: null, visionModel: null }), fs = fsp, fetchImpl = globalThis.fetch, now = Date.now, log = (...a) => console.error(...a) }) {
+  const settingsFile = path.join(dataDir, SETTINGS_FILE)
+  let settingsCache = null
+
+  async function readSettings() {
+    if (settingsCache) return settingsCache
+    try {
+      const raw = JSON.parse(await fs.readFile(settingsFile, 'utf8'))
+      if (raw && raw.version === 1) { settingsCache = normalizeSettings(raw); return settingsCache }
+    } catch { /* belum ada */ }
+    settingsCache = normalizeSettings(DEFAULT_SETTINGS)
+    return settingsCache
+  }
+
+  async function updateSettings(patch) {
+    const cur = await readSettings()
+    const next = normalizeSettings({
+      ...cur,
+      ...patch,
+      budget: { ...cur.budget, ...(patch?.budget ?? {}) },
+      ...(patch?.manualSelection !== undefined ? { manualSelection: patch.manualSelection } : {}),
+    })
+    settingsCache = next
+    await fs.mkdir(dataDir, { recursive: true })
+    const tmp = `${settingsFile}.${process.pid}.tmp`
+    await fs.writeFile(tmp, JSON.stringify(next), { mode: 0o600 })
+    await fs.rename(tmp, settingsFile)
+    return next
+  }
+
+  /** Katalog gabungan + provider aktif. Katalog yang belum dimuat tidak dihakimi: tidak diarang.
+   *  Sebelum membaca, katalog provider aktif yang masih kosong di-"warm" (maks 1× per 60 detik per provider)
+   *  agar chat langsung jalan setelah kunci disimpan — tanpa tebakan model. */
+  const warmTriedAt = new Map()
+  async function warmCatalogs() {
+    const summary = await catalog.allProvidersSummary()
+    const snap = await credentials.snapshot()
+    for (const [id, st] of Object.entries(snap)) {
+      if (!st.enabled) continue
+      const rec = summary[id]
+      if (rec && rec.count > 0) continue
+      const last = warmTriedAt.get(id) ?? 0
+      if (now() - last < 60_000) continue
+      warmTriedAt.set(id, now())
+      try {
+        const def = getProviderDef(id)
+        if (!def) continue
+        await catalog.refresh(id, await credentials.credentialFor(id, def.defaultBaseUrl))
+      } catch { /* provider tidak terjangkau: status nyata tetap di kartu provider (Uji koneksi / Muat katalog) */ }
+    }
+  }
+
+  async function effectiveCatalogEntries() {
+    const cfg = getConfig()
+    await warmCatalogs()
+    const snap = await credentials.snapshot()
+    const entries = []
+    const providerStates = {}
+    for (const [id, st] of Object.entries(snap)) {
+      providerStates[id] = st
+      if (!st.enabled) continue
+      const credForCatalog = await credentials.credentialFor(id, getProviderDef(id)?.defaultBaseUrl || cfg.baseUrl)
+      const { models } = await catalog.list(id, { allowStale: true, cred: credForCatalog })
+      entries.push(...(models ?? []).map((m) => ({ ...m, providerId: id })))
+    }
+
+    // Provider env legacy: hanya dimasukkan ke kandidat JIKA TIDAK ADA provider terdaftar apa pun yang aktif
+    // dan konfigurasi model ada. Ini mencegah provider legacy 'env' (seperti gemini-3.5-flash-lite)
+    // mengalahkan provider yang telah diaktifkan dan dikonfigurasi dengan endpoint-nya sendiri.
+    const enabledProviderIds = Object.keys(providerStates).filter(id => providerStates[id].enabled)
+    const hasEnabledRegisteredProvider = enabledProviderIds.length > 0
+    if (!hasEnabledRegisteredProvider && cfg.apiKey && cfg.model) {
+      entries.push({
+        id: cfg.model, name: cfg.model, providerId: 'env', tier: 'unknown',
+        pricing: null, contextWindow: null,
+        capabilities: { vision: cfg.visionModel ? true : null, tools: null },
+        source: 'environment_config', fetchedFrom: 'DUDU_MODEL (env/dudu.env)',
+      })
+    }
+    return { entries, providerStates }
+  }
+
+  async function budgetStatus() {
+    const s = await readSettings()
+    const snap = await usage.summary({ budget: { paidUsdMonthly: s.budget.paidUsdMonthly }, now })
+    return snap.budget
+  }
+
+  /* ---------- kursor perputaran (ROTATE): { [kategori task]: jumlah pemilihan } ---------- */
+  let rotationCache = null
+  async function readRotationCursor(category) {
+    try {
+      if (!rotationCache) {
+        const raw = JSON.parse(await fs.readFile(path.join(dataDir, ROTATION_FILE), 'utf8'))
+        rotationCache = (raw && typeof raw === 'object' && raw.version === 1 && typeof raw.counts === 'object') ? raw : { version: 1, counts: {} }
+      }
+      return Number(rotationCache.counts[category]) || 0
+    } catch { return 0 }
+  }
+  async function bumpRotation(category, next) {
+    try {
+      rotationCache ??= { version: 1, counts: {} }
+      rotationCache.counts[category] = next
+      const file = path.join(dataDir, ROTATION_FILE)
+      await fs.mkdir(dataDir, { recursive: true })
+      const tmp = `${file}.${process.pid}.tmp`
+      await fs.writeFile(tmp, JSON.stringify(rotationCache), 'utf8')
+      await fs.rename(tmp, file)
+    } catch { /* kursor gagal disimpan: rotasi tetap berjalan dari cache memori */ }
+  }
+
+  async function callProvider(providerId, cred, { modelId, messages, signal, maxTokens }) {
+    if (providerId === 'env') {
+      // Provider env legacy: konfigurasi datang dari dudu.env / .env (bukan registry).
+      return envAdapter.chat(cred, { model: modelId, messages, signal, maxTokens }, asFetch(fetchImpl))
+    }
+    const def = getProviderDef(providerId)
+    if (!def) throw new DuduError(400, 'provider_unknown', `Provider ${providerId} tidak terdaftar.`)
+
+    // Gunakan per-provider override dari config (jika ada), lalu fallback ke credential store, lalu registry default.
+    const cfg = getConfig()
+    const providerOverride = cfg.providerConfigs?.[providerId] ?? {}
+    const credOverride = providerOverride.apiKey || providerOverride.baseUrl
+      ? { apiKey: providerOverride.apiKey || cred.apiKey, baseUrl: providerOverride.baseUrl || cred.baseUrl }
+      : cred
+
+    const effective = {
+      apiKey: credOverride.apiKey,
+      baseUrl: credOverride.baseUrl || def.defaultBaseUrl || cfg.baseUrl,
+    }
+    if (def.needsCustomBaseUrl && !effective.baseUrl) throw new ProviderConfigError('Endpoint custom belum memiliki baseUrl.')
+    const v = validateBaseUrl(effective.baseUrl)
+    if (!v.ok) throw new ProviderConfigError(`BaseUrl tidak valid: ${v.reason}`)
+    return def.adapter.chat(effective, {
+      model: modelId, messages, signal, maxTokens,
+      usageInclude: providerId === 'openrouter', // OpenRouter: minta usage+cost aktual dilaporkan
+    }, asFetch(fetchImpl))
+  }
+
+  /** Estimasi token lokal (dilabeli ESTIMATED — bukan angka provider). */
+  function estimatedUsage(messages, content) {
+    const inputChars = messages.reduce((a, m) => a + Math.ceil(String(m.content ?? '').length / 4), 0)
+    return {
+      usage: { input: estimateTokensFromChars(inputChars), output: estimateTokensFromChars(String(content ?? '').length), total: null, cached: null },
+      usageProvenance: USAGE_PROVENANCE.ESTIMATED,
+    }
+  }
+
+  /** Biaya dengan provenance: PROVIDER_REPORTED_COST > COMPUTED_FROM_CATALOG_PRICING > NONE. */
+  function computeCost(providerId, providerResult, catalogEntry) {
+    if (providerResult && Number.isFinite(providerResult.cost)) return { amount: providerResult.cost, currency: 'USD', provenance: COST_PROVENANCE.PROVIDER_REPORTED_COST }
+    const p = catalogEntry?.pricing
+    if (catalogEntry?.tier === 'local') return { amount: 0, currency: 'USD', provenance: COST_PROVENANCE.PROVIDER_REPORTED_COST } // inferensi lokal memang tanpa biaya API
+    if (p && providerResult && (Number.isFinite(providerResult.usage?.input) || Number.isFinite(providerResult.usage?.output))) {
+      const amount = ((providerResult.usage.input ?? 0) / 1e6) * p.inputPer1M + ((providerResult.usage.output ?? 0) / 1e6) * p.outputPer1M
+      return { amount, currency: p.currency ?? 'USD', provenance: COST_PROVENANCE.COMPUTED_FROM_CATALOG_PRICING }
+    }
+    return { amount: null, currency: 'USD', provenance: COST_PROVENANCE.NONE }
+  }
+
+  /**
+   * Permintaan LLM utama lewat routing + guard budget + fallback terkendali + pencatatan.
+   * @param {{ messages: Array<{role: 'system'|'user'|'assistant', content: string}>, purpose?: 'chat'|'mission',
+   *   conversationId?: string, missionId?: string, mode?: string, manualSelection?: {providerId, modelId}|null,
+   *   requiresVision?: boolean, maxTokens?: number, signal?: AbortSignal }} req
+   */
+  async function complete(req) {
+    const s = await readSettings()
+    const mode = ROUTING_MODES.includes(req.mode) ? req.mode : s.defaultMode
+    const manual = mode === 'MANUAL' ? (req.manualSelection ?? s.manualSelection) : null
+    const { entries, providerStates } = await effectiveCatalogEntries()
+    const lastUser = [...req.messages].reverse().find((m) => m.role === 'user')
+    const task = classifyTask(String(lastUser?.content ?? ''), { hasImages: req.requiresVision === true })
+    const budget = await budgetStatus()
+
+    const state = selectModel({
+      mode, manualSelection: manual, task,
+      catalogEntries: entries, budgetStatus: budget,
+      maxFallbacks: s.maxFallbacks,
+      rotationCursor: mode === 'ROTATE' ? await readRotationCursor(task.category) : 0,
+    })
+    if (state.error) {
+      const err = new PolicyError(state.error, `${state.error}. ${state.detail ?? ''}`.trim(), state.error === 'budget_exceeded' ? 402 : 409)
+      err.route = { mode, task, budget: { state: budget.state, cap: budget.cap, spent: budget.spent }, reason: state.detail }
+      throw err
+    }
+    // Perputaran: kursor maju per kategori task agar pemakaian menyebar ke semua kandidat yang cocok.
+    if (mode === 'ROTATE' && Number.isFinite(state.nextRotation)) void bumpRotation(task.category, state.nextRotation)
+    const maxTokens = Number.isFinite(req.maxTokens) && req.maxTokens > 0 ? req.maxTokens : defaultMaxTokens(task)
+
+    const failures = []
+    const fallbackChain = []
+    let result = null
+    let chosenState = { ...state, fallbackCount: 0, budgetStatus: budget, usedSet: new Set(), escalationReason: state.escalationReason ?? null }
+
+    for (;;) {
+      const chosen = chosenState.chosen
+      const providerId = chosen.providerId
+      const def = getProviderDef(providerId)
+      if (providerId !== 'env' && !def) throw new DuduError(400, 'provider_unknown', `Provider ${providerId} tidak terdaftar.`)
+      if (providerId !== 'env' && !providerStates[providerId]?.enabled) {
+        throw new PolicyError('provider_disabled', `Provider ${def.label} tidak diaktifkan; tidak bisa dipakai untuk routing.`)
+      }
+      const resolved = providerId === 'env' ? resolveEnv(chosen) : {
+        cred: await credentials.credentialFor(providerId, def.defaultBaseUrl),
+        modelId: chosen.id,
+      }
+      try {
+        result = await callProvider(providerId, resolved.cred, { modelId: resolved.modelId, messages: req.messages, signal: req.signal, maxTokens })
+        break
+      } catch (e) {
+        if (e?.name === 'AbortError') throw e
+        const errStatus = e?.upstreamStatus ?? 0
+        const reason = `${providerId}/${resolved.modelId} gagal: ${String(e?.message || e).slice(0, 160)}`
+        failures.push({ providerId, modelId: resolved.modelId, reason, status: errStatus })
+        const next = nextFallback(chosenState, chosen)
+        if (!next) {
+          const err = new ProviderRequestError(
+            `Semua kandidat routing gagal. ${failures.map((f) => f.reason).join(' | ')}`,
+            errStatus || 502,
+          )
+          err.route = { mode, task, budget: { state: budget.state, cap: budget.cap, spent: budget.spent }, attempts: failures.map((f) => `${f.providerId}/${f.modelId}: ${f.reason}`), escalationReason: chosenState.escalationReason, reason: chosenState.reason }
+          throw err
+        }
+        fallbackChain.push(chosenState.lastFallbackReason ?? `${providerId}/${resolved.modelId} → ${next.chosen.providerId}/${next.chosen.id}`)
+        chosenState = next
+      }
+    }
+
+    const chosen = chosenState.chosen
+    const providerId = chosen.providerId
+    const requestModelId = providerId === 'env' ? getConfig().model : chosen.id
+
+    // Provenance token: provider-reported bila ada; bila tidak, ESTIMATED (dilabeli).
+    const usageRec = (result?.usage && (Number.isFinite(result.usage.input) || Number.isFinite(result.usage.output)))
+      ? {
+          usage: {
+            input: Number.isFinite(result.usage.input) ? result.usage.input : null,
+            output: Number.isFinite(result.usage.output) ? result.usage.output : null,
+            total: Number.isFinite(result.usage.total) ? result.usage.total : null,
+            cached: Number.isFinite(result.usage.cached) ? result.usage.cached : null,
+          },
+          usageProvenance: USAGE_PROVENANCE.PROVIDER_REPORTED,
+        }
+      : estimatedUsage(req.messages, result?.content)
+
+    const costRec = computeCost(providerId, result, chosen)
+    const tier = providerId === 'env' ? 'unknown' : chosen.tier
+    const costFinal = costRec
+
+    await usage.record({
+      providerId, modelId: requestModelId ?? chosen.id, kind: 'chat', tier, status: 'success',
+      usage: usageRec.usage, usageProvenance: usageRec.usageProvenance,
+      cost: costFinal, fallback: fallbackChain,
+      escalationReason: chosenState.escalationReason, mode,
+      purpose: req.purpose ?? 'chat', conversationId: req.conversationId, missionId: req.missionId,
+    })
+
+    const route = {
+      mode,
+      task: { category: task.category, complexity: task.complexity, requiresVision: task.requiresVision, requiresTools: task.requiresTools },
+      providerId, modelId: requestModelId ?? chosen.id, tier,
+      reason: chosenState.reason,
+      escalationReason: chosenState.escalationReason ?? null,
+      fallback: fallbackChain.length ? fallbackChain : undefined,
+      attempts: failures.length ? failures.map((f) => `${f.providerId}/${f.modelId}: ${f.reason}`) : undefined,
+      considered: (state.considered ?? []).map((m) => `${m.providerId}/${m.id} (${m.tier})`).slice(0, 6),
+      budget: { state: budget.state, cap: budget.cap, spent: budget.spent },
+      usageProvenance: usageRec.usageProvenance,
+      costProvenance: costFinal.provenance,
+      maxTokens,
+      estimated: usageRec.usageProvenance === USAGE_PROVENANCE.ESTIMATED,
+    }
+    return {
+      content: result?.content ?? '',
+      model: typeof result?.model === 'string' ? result.model : requestModelId,
+      providerId, modelId: requestModelId ?? chosen.id, tier,
+      usage: usageRec, cost: costFinal,
+      route,
+    }
+  }
+
+  function resolveEnv(chosen) {
+    const cfg = getConfig()
+    // Provider env legacy hanya aktif bila tidak ada provider terdaftar yang aktif
+    // dan konfigurasi legacy lengkap.
+    if (!cfg.apiKey || !cfg.model) throw new ProviderConfigError('Konfigurasi env (DUDU_PROVIDER_API_KEY) belum lengkap; provider env tidak bisa dipakai.')
+    return { cred: { apiKey: cfg.apiKey, baseUrl: cfg.baseUrl }, modelId: chosen.id }
+  }
+
+  /** Uji koneksi provider memakai adapter resmi; hasil disimpan sebagai status kredensial. */
+  async function testProvider(providerId) {
+    const def = getProviderDef(providerId)
+    if (!def) return { ok: false, reason: 'Provider tidak dikenal.' }
+    const cred = await credentials.credentialFor(providerId, def.defaultBaseUrl)
+    if (def.needsCustomBaseUrl && !cred.baseUrl) return { ok: false, reason: 'Endpoint custom belum memiliki baseUrl (atur dulu di Pengaturan).' }
+    if (def.requiresApiKey && !cred.apiKey) return { ok: false, reason: 'Kunci API belum diatur.' }
+    const result = await def.adapter.testConnection(cred, asFetch(fetchImpl))
+    await credentials.recordTest(providerId, { ok: Boolean(result.ok), status: result.status, reason: result.reason })
+    return { ...result, testedAt: now() }
+  }
+
+  return {
+    complete, testProvider,
+    readSettings, updateSettings,
+    effectiveCatalogEntries, budgetStatus,
+    settingsFile,
+  }
+}

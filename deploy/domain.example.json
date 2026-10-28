@@ -1,0 +1,13 @@
+{
+  "domainPlaceholder": "REPLACE-WITH-OFFICIAL-DOMAIN",
+  "emailPlaceholder": "REPLACE-WITH-OFFICIAL-EMAIL",
+  "notes": "Single source of truth for domain-related placeholders. When the official domain is purchased,\nrun the appropriate scripts to replace all tokens consistently. Do NOT edit these values to invent\na domain — the real domain must come from the pemilik produk after registrar verification.\n\nAfter domain is set, recommended replacement commands:\n  node scripts/replace-domain.mjs  (will replace all tokens in landing files, package.json, electron-builder.yml)\n  npm run landing:check:strict   (should then exit 0)\n  npm run proxy:check -- --strict  (should then exit 0)",
+  "relatedFiles": [
+    "landing/sitemap.xml",
+    "landing/robots.txt",
+    "landing/index.html",
+    "package.json",
+    "electron-builder.yml",
+    "deploy/nginx/dudu-landing.conf"
+  ]
+}

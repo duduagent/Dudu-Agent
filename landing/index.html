@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#FCFBF8" />
+
+  <!-- ================= SEO ================= -->
+  <!-- NOTE: <link rel="canonical"> sengaja TIDAK ada — domain resmi belum ditetapkan.
+       Tambahkan hanya setelah domain resmi disahkan (lihat landing/README.md). -->
+  <title>Dudu — AI Workforce &amp; Agent OS | Goal to verified artifacts</title>
+  <meta name="description" content="Dudu turns a plain-language goal into a verified mission: it plans the steps, asks for permission, runs local tools, verifies the result against explicit criteria, and hands you the artifacts — with an append-only audit trail of every action. Available as a self-hosted web app and a verified Windows desktop build." />
+  <meta name="robots" content="index, follow" />
+  <meta name="author" content="Dudu AI" />
+
+  <!-- ================= Open Graph / Twitter ================= -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Dudu AI" />
+  <meta property="og:title" content="Dudu — Your AI Workforce. One Platform. Every Device." />
+  <meta property="og:description" content="Goal → plan → permission → execution → verification → artifact. A local-first agent OS with an append-only audit trail of every action." />
+  <meta property="og:image" content="https://REPLACE-WITH-OFFICIAL-DOMAIN/assets/img/og-image.png" />
+  <meta property="og:image:width" content="1440" />
+  <meta property="og:image:height" content="900" />
+  <meta property="og:image:alt" content="Dudu Execution Center — live mission timeline, steps and attention centre." />
+  <meta property="og:locale" content="en" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Dudu — Your AI Workforce. One Platform. Every Device." />
+  <meta name="twitter:description" content="Goal → plan → permission → execution → verification → artifact. A local-first agent OS with an append-only audit trail." />
+  <meta name="twitter:image" content="https://REPLACE-WITH-OFFICIAL-DOMAIN/assets/img/og-image.png" />
+
+  <!-- Favicon: aset yang benar-benar ada di repo (build/icon.svg + build/icon.png) -->
+  <link rel="icon" href="assets/img/icon.svg" type="image/svg+xml" />
+  <link rel="alternate icon" href="assets/img/icon.png" sizes="1024x1024" type="image/png" />
+  <link rel="apple-touch-icon" href="assets/img/icon.png" />
+
+  <link rel="stylesheet" href="assets/landing.css" />
+</head>
+<body class="no-js">
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <!-- ================= HEADER ================= -->
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="#top">
+        <img src="assets/img/icon.svg" alt="" width="32" height="32" />
+        <span>
+          <span class="brand-name">Dudu</span>
+          <span class="brand-tag">AI Workforce &amp; Agent OS</span>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-nav-toggle>
+        Menu
+      </button>
+      <nav class="nav" id="site-nav" aria-label="Main">
+        <a href="#channels">Product</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#use-cases">Use cases</a>
+        <a href="#security">Security</a>
+        <a href="#downloads">Downloads</a>
+        <a href="#faq">FAQ</a>
+        <a class="btn btn-primary nav-cta" href="#wait">Join the waiting list</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ================= HERO ================= -->
+    <section class="hero" id="top">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow">Dudu AI Workforce &amp; Agent OS</p>
+          <h1>Your AI Workforce. One Platform. Every Device.</h1>
+          <p class="lead">
+            Dudu turns a plain-language goal into a <strong>verified mission</strong>: it plans the steps,
+            asks for your permission, runs local tools, re-checks the result against explicit acceptance
+            criteria, and hands you the artifacts. Every action is written to an append-only audit trail.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#downloads">Get the desktop app</a>
+            <a class="btn btn-secondary" href="#how-it-works">See how it works</a>
+          </div>
+          <p class="hero-note">
+            Windows build verified end-to-end (install, startup, 51/51 smoke checks, upgrade path).
+            Web app runs locally or self-hosted. Mobile is not released yet.
+          </p>
+        </div>
+
+        <figure class="shot">
+          <div class="shot-bar" aria-hidden="true">
+            <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
+            <span>Dudu — Execution Center</span>
+          </div>
+          <!-- Screenshot NYATA dari build lokal (scripts/ui-audit.cjs), bukan mock. -->
+          <img src="assets/img/app-execution.png" width="1440" height="900" fetchpriority="high"
+               alt="Dudu Execution Center showing a live mission timeline with real steps, timestamps and a needs-attention list." />
+          <figcaption>Real interface from the local build — mission timeline and attention centre (screenshot, no mock-up).</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ================= DEMONSTRASI PRODUK ================= -->
+    <section class="tight" id="demo">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Product demonstration</p>
+          <h2>The workspace, as it actually runs</h2>
+          <p class="lead">
+            Screenshots of the current build, captured automatically from the running interface. No
+            mock-ups, no staged dashboards, and no numbers that the product did not produce.
+          </p>
+        </div>
+
+        <div class="demo-grid">
+          <figure class="shot">
+            <div class="shot-bar" aria-hidden="true">
+              <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
+              <span>Dudu — Missions &amp; Tasks</span>
+            </div>
+            <img src="assets/img/app-missions.png" width="1440" height="900" loading="lazy"
+                 alt="Mission creation screen: a goal field, a source file picker, and a note that planning is rule-based." />
+            <figcaption>A mission starts as a draft: goal, source file, and acceptance criteria fixed before execution.</figcaption>
+          </figure>
+
+          <figure class="shot">
+            <div class="shot-bar" aria-hidden="true">
+              <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
+              <span>Dudu — Chat with attachments</span>
+            </div>
+            <img src="assets/img/app-chat.png" width="1440" height="900" loading="lazy"
+                 alt="Chat workspace with attachment support, showing honest status when a document cannot be read by the model." />
+            <figcaption>Chat with attachments — the interface states plainly when a document cannot be read by the model.</figcaption>
+          </figure>
+        </div>
+
+        <figure class="shot demo-mobile-shot">
+          <div class="shot-bar" aria-hidden="true">
+            <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
+            <span>Dudu — mobile width</span>
+          </div>
+          <img src="assets/img/mobile-execution.png" width="390" height="760" loading="lazy"
+               alt="The same Execution Center interface rendered at a 390 pixel wide mobile viewport." />
+          <figcaption>The same interface at 390 px. This is the responsive web app — <strong>not</strong> a native mobile app.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ================= FAKTA ================= -->
+    <section class="tight">
+      <div class="wrap">
+        <div class="facts">
+          <div class="fact">
+            <strong>Local-first</strong>
+            <span>Your files, missions and artifacts stay in your own OS data folder. No cloud account required.</span>
+          </div>
+          <div class="fact">
+            <strong>Explicit approvals</strong>
+            <span>Every run needs an approval bound to the tool, the parameters and an expiry — one action, one approval.</span>
+          </div>
+          <div class="fact">
+            <strong>Append-only audit trail</strong>
+            <span>Each step, tool call, artifact and verdict is recorded — with secrets redacted before it is written.</span>
+          </div>
+          <div class="fact">
+            <strong>Verified artifacts</strong>
+            <span>Criteria are re-checked independently from disk before a mission is called complete.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= KANAL PRODUK ================= -->
+    <section class="section-ivory" id="channels">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Three channels</p>
+          <h2>One product, three ways to run it</h2>
+          <p class="lead">
+            The status below reflects what has actually been built and tested — not a roadmap promise.
+            Where a channel is partial or unreleased, it says so.
+          </p>
+        </div>
+
+        <div class="channels">
+          <!-- WEB APP -->
+          <article class="card" id="web-app">
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 9h18M8 21h8"/>
+              </svg>
+            </div>
+            <h3>Web App</h3>
+            <p class="status available">Available — self-hosted</p>
+            <p>
+              The same workspace that runs inside the desktop app, served over HTTP from a machine you
+              control. Nothing is hosted for you: you run it, or point your own infrastructure at it.
+            </p>
+            <ul>
+              <li>Full workspace: chat with attachments, Knowledge Base, files &amp; artifacts, missions, capability registry.</li>
+              <li>API binds to loopback only by default — do not expose it without a reverse proxy and auth.</li>
+              <li>No public hosted instance yet, so there is no public URL to link to here.</li>
+            </ul>
+            <div class="card-actions">
+              <a class="btn btn-ghost" href="#wait">Get notified when a hosted instance opens</a>
+            </div>
+          </article>
+
+          <!-- DESKTOP -->
+          <article class="card" id="desktop">
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>
+              </svg>
+            </div>
+            <h3>Desktop App</h3>
+            <p class="status available">Available — Windows</p>
+            <p>
+              A local-first Electron app: no browser tab, no port, no server process. The Windows build is
+              verified end-to-end; Linux is partial; macOS is not released yet.
+            </p>
+            <ul>
+              <li><strong>Windows 10/11 x64</strong> — installer &amp; portable, installed and smoke-tested (51/51), upgrade path from 0.5.0 verified.</li>
+              <li><strong>Linux x64</strong> — portable tarball with correct executable permissions; <code>.deb</code>/AppImage must be built on Linux; the runtime has not been executed on Linux yet.</li>
+              <li><strong>macOS x64/arm64</strong> — build requires a macOS machine; a CI job is prepared; binaries are unsigned and not produced here.</li>
+            </ul>
+            <div class="card-actions">
+              <a class="btn btn-primary" href="#downloads">See verified artifacts</a>
+            </div>
+          </article>
+
+          <!-- MOBILE -->
+          <article class="card" id="mobile">
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/>
+              </svg>
+            </div>
+            <h3>Mobile App — Android &amp; iOS</h3>
+            <p class="status planned">Planned — not released</p>
+            <p>
+              There is <strong>no mobile build today</strong>: no Android or iOS package, no store listing,
+              and no mobile-specific code in the repository. The responsive interface you can see on this
+              page is the web app, not a native app.
+            </p>
+            <ul>
+              <li>No download links are provided because nothing has been produced to link to.</li>
+              <li>Mobile is the most requested channel in the waiting list; join it to be told first.</li>
+              <li>When it ships, the same mission engine and audit trail will run behind it.</li>
+            </ul>
+            <div class="card-actions">
+              <a class="btn btn-secondary" href="#wait">Join the mobile waiting list</a>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CARA KERJA ================= -->
+    <section id="how-it-works">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">How it works</p>
+          <h2>From a sentence to an artifact you can check</h2>
+          <p class="lead">
+            The mission engine is deterministic and local: every stage below is implemented and covered by
+            automated tests. No step is skipped, and nothing is reported as done unless the result on disk
+            supports it.
+          </p>
+        </div>
+
+        <ol class="steps">
+          <li class="step">
+            <h3>Goal</h3>
+            <p>You state the goal and pick the source file. The goal is the only input — there is no hidden prompt, and the mission starts as a draft.</p>
+          </li>
+          <li class="step">
+            <h3>Mission planning</h3>
+            <p>The planner builds a step list and <strong>fixes the acceptance criteria before anything runs</strong>. Planning is rule-based, so a plan is reproducible rather than improvised.</p>
+          </li>
+          <li class="step">
+            <h3>Permission &amp; approval</h3>
+            <p>Nothing executes until you approve. Approvals are bound to a scope: the tool, the operation, the target and a digest of the parameters, with an expiry and single use.</p>
+          </li>
+          <li class="step">
+            <h3>Execution</h3>
+            <p>Local tools run step by step — validate, load, profile, write, verify. Every attempt gets its own execution ID and is written to the audit trail as it happens.</p>
+          </li>
+          <li class="step">
+            <h3>Verification</h3>
+            <p>The artifacts are read back from disk and re-checked with an independent implementation. A mismatch becomes “needs attention”, never a silent pass.</p>
+          </li>
+          <li class="step">
+            <h3>Artifact delivery</h3>
+            <p>You get the report and the machine-readable profile with size and SHA-256, downloadable from the mission and listed with its evidence in the audit trail.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ================= USE CASE ================= -->
+    <section class="section-ivory" id="use-cases">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Use cases</p>
+          <h2>Where teams actually put Dudu today</h2>
+          <p class="lead">
+            These are the workflows the current build supports today. No outcome or ROI numbers are quoted
+            here, because we do not have measured results to quote.
+          </p>
+        </div>
+
+        <div class="cases">
+          <article class="case">
+            <h3>Developer</h3>
+            <p>Turn a repeatable data task into a mission: drop in a CSV or JSON export, define the goal, and get a verified report plus the profile behind it.</p>
+            <p class="case-note">Best fit: tabular analysis, repeatable reporting, audited runs.</p>
+          </article>
+          <article class="case">
+            <h3>Startup &amp; one-person company</h3>
+            <p>One workspace for files, a searchable Knowledge Base and task execution — so context is not scattered across five tools for a team of one.</p>
+            <p class="case-note">Best fit: keeping the same context between chat, files and executed work.</p>
+          </article>
+          <article class="case">
+            <h3>UMKM &amp; digital entrepreneur</h3>
+            <p>Run data work — sales exports, inventory lists, customer spreadsheets — through the same verified pipeline without hand-editing spreadsheets between steps.</p>
+            <p class="case-note">Best fit: recurring reports on CSV/TSV/JSON/XLSX exports.</p>
+          </article>
+          <article class="case">
+            <h3>Creator &amp; influencer</h3>
+            <p>Bring source material into the workspace, keep it indexed, and work from a single place instead of re-uploading the same documents into every tool.</p>
+            <p class="case-note">Best fit: document-heavy workflows with retrieval and citations from the Knowledge Base.</p>
+          </article>
+          <article class="case">
+            <h3>Knowledge workers &amp; professionals</h3>
+            <p>Ask for an analysis of a file and get back a report whose criteria were independently verified, with a complete record of what ran and who approved it.</p>
+            <p class="case-note">Best fit: work that needs an audit trail more than it needs autonomy.</p>
+          </article>
+          <article class="case">
+            <h3>Anyone who needs the receipts</h3>
+            <p>Open the audit trail for any mission and see the exact sequence: which tool ran, which permission covered it, what the verifier concluded.</p>
+            <p class="case-note">Best fit: shared or client-facing work where “why did it do that?” matters.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= KEAMANAN ================= -->
+    <section id="security">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Trust &amp; security</p>
+          <h2>Built to show its work, not to promise magic</h2>
+          <p class="lead">
+            These are the mechanisms that exist in the shipped build. Where a limit exists, it is stated
+            here rather than left for you to discover.
+          </p>
+        </div>
+
+        <div class="trust-grid">
+          <article class="trust-card">
+            <h3>Permissions are enforced at the execution boundary</h3>
+            <p>
+              Eight operation-level permissions (<code>file:read</code>, <code>file:write</code>,
+              <code>network:out</code>, <code>credential:use</code>, <code>side-effect:external</code>,
+              <code>plugin:exec</code>, <code>mcp:exec</code>, <code>process:exec</code>) are checked in the
+              server before an action runs — not only in the UI. Network, side-effect and credential
+              permissions require real configuration plus an explicit confirmation.
+            </p>
+          </article>
+          <article class="trust-card">
+            <h3>Approvals are bound to one action</h3>
+            <p>
+              An approval covers a specific capability, operation, target and parameter digest, with an
+              expiry, and is consumed after use. Changing the parameters invalidates it. Approving a
+              mission is not a blank cheque for everything that runs inside it.
+            </p>
+          </article>
+          <article class="trust-card">
+            <h3>Append-only audit trail, with secrets redacted</h3>
+            <p>
+              Every mission and tool event is appended to a local JSONL log with an ID, timestamp, type,
+              outcome and correlation ID. API keys, tokens and bearer credentials are redacted before
+              writing, and user file contents are summarised (name, size, SHA-256) instead of copied.
+            </p>
+          </article>
+          <article class="trust-card">
+            <h3>Change detection on the trail</h3>
+            <p>
+              Events are hash-chained, so an edit to an already-written event is detected by the integrity
+              check and reported with the line number. The log is rotated by size with a fixed number of
+              retained generations.
+            </p>
+          </article>
+        </div>
+
+        <div class="limit-box">
+          <h3>What this build does <em>not</em> claim</h3>
+          <ul>
+            <li><strong>The audit trail is not tamper-proof.</strong> Hash chaining detects changes to events already written; it does not stop someone who can rewrite the whole file. There is no cryptographic signature and no key management.</li>
+            <li><strong>No security certification.</strong> Nothing here has been audited or certified by a third party. The controls above are implemented and covered by our own regression tests — that is the extent of the evidence.</li>
+            <li><strong>Plugins run in-process</strong> and are not sandboxed; the plugin permission marks that action, it does not contain it.</li>
+            <li><strong>Live provider calls are unverified here.</strong> Chat, vision and speech paths are exercised against a local mock; real model calls need your own provider key and have not been validated in this build.</li>
+            <li><strong>Linux and macOS runtimes are unverified.</strong> The Windows build is tested end-to-end; the Linux and macOS artefacts exist but have not been executed on those operating systems.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= UNDUHAN ================= -->
+    <section class="section-ivory" id="downloads">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Downloads</p>
+          <h2>Artefacts that were actually built and verified</h2>
+          <p class="lead">
+            Listed by the checks that ran against them, not by marketing intent. Files are distributed with
+            each release; the SHA-256 of every artefact is recorded in the release checksum file.
+          </p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <caption>Release v0.6.4 — Windows x64 verified, Linux partial, macOS and mobile not produced here.</caption>
+            <thead>
+              <tr><th scope="col">Platform</th><th scope="col">Artefact</th><th scope="col">Status</th><th scope="col">Verified how</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Windows 10/11 x64</td>
+                <td><code>Dudu-AI-Setup-0.6.4-x64.exe</code></td>
+                <td><span class="status available">Available</span></td>
+                <td>Silent install, startup, 51/51 desktop smoke checks, upgrade from 0.5.0, uninstall keeps user data.</td>
+              </tr>
+              <tr>
+                <td>Windows 10/11 x64</td>
+                <td><code>Dudu-AI-Portable-0.6.4-x64.exe</code></td>
+                <td><span class="status available">Available</span></td>
+                <td>Extracted and smoke-tested as a portable binary; package contents verified.</td>
+              </tr>
+              <tr>
+                <td>Linux x64</td>
+                <td><code>Dudu-AI-0.6.4-linux-x64-portable.tar.gz</code></td>
+                <td><span class="status partial">Partial</span></td>
+                <td>Application directory built and packed with correct executable permissions (0755). <strong>Not yet executed on Linux.</strong></td>
+              </tr>
+              <tr>
+                <td>Linux x64</td>
+                <td><code>dudu-ai_0.6.4_amd64.deb</code>, <code>Dudu-AI-0.6.4-x86_64.AppImage</code></td>
+                <td><span class="status dev">Not built here</span></td>
+                <td>Require a Linux builder (packager tool and symlink support); a CI job is prepared to build them.</td>
+              </tr>
+              <tr>
+                <td>macOS x64 / arm64</td>
+                <td><code>Dudu-AI-0.6.4-&lt;arch&gt;.dmg</code>, <code>Dudu-AI-Portable-0.6.4-&lt;arch&gt;.zip</code></td>
+                <td><span class="status dev">Not built here</span></td>
+                <td>The desktop packager only produces macOS artefacts on macOS. A CI job exists; binaries would still be unsigned.</td>
+              </tr>
+              <tr>
+                <td>Android / iOS</td>
+                <td>—</td>
+                <td><span class="status planned">Not released</span></td>
+                <td>No mobile package has been produced. Join the waiting list instead.</td>
+              </tr>
+              <tr>
+                <td>Source</td>
+                <td><code>Dudu-AI-0.6.4-source.zip</code></td>
+                <td><span class="status available">Available</span></td>
+                <td>Shipped without <code>node_modules</code>, so you can build the desktop app yourself.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" style="margin-top:14px">
+          All desktop packages are <strong>unsigned</strong> — your operating system will warn on first run.
+          Checksums for every artefact are in the release checksum file shipped with the release.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= FAQ ================= -->
+    <section id="faq">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">FAQ</p>
+          <h2>Straight answers</h2>
+        </div>
+
+        <div class="faq">
+          <details class="faq-item">
+            <summary>What does Dudu actually do today?</summary>
+            <div class="faq-body">
+              <p>
+                It turns a goal plus a data file into a mission with fixed acceptance criteria, asks for
+                your approval, runs local tools, re-verifies the produced artifacts from disk, and gives you
+                the report together with a complete audit trail. One mission template exists today: tabular
+                data analysis (CSV, TSV, JSON, JSONL, XLSX). The planner is rule-based, not a model.
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>Which platforms can I use right now?</summary>
+            <div class="faq-body">
+              <p>
+                Windows 10/11 x64 is the verified one, as an installer or a portable binary. The web app runs
+                on any machine you can run Node on, but it serves over HTTP from your own host. The Linux
+                tarball is built but has not been executed on Linux yet, and macOS and mobile are not
+                released.
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>Where does my data go?</summary>
+            <div class="faq-body">
+              <p>
+                Into your own operating system data folder: files, missions, artifacts and the audit trail
+                live there. Nothing is uploaded to us, because there is no server to upload to. When you
+                configure a model provider yourself, the prompts you send go to that provider — that
+                request is made by your own key, on your own machine.
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>Do I need an API key?</summary>
+            <div class="faq-body">
+              <p>
+                For chat, vision and speech, yes: you add your own provider key, and it is stored
+                server-side in your data folder, never in the front-end bundle. Without a key, the
+                application still runs — it simply tells you honestly that the model features are not
+                configured.
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>Can someone tamper with the audit log?</summary>
+            <div class="faq-body">
+              <p>
+                No, and we do not claim it is. Events are hash-chained, so altering an already-written
+                event is detectable, and the integrity check tells you where the chain broke. But anyone
+                who can rewrite the whole file can rebuild a valid chain, and there is no signature. Treat
+                the trail as a strong local record, not as evidence for an adversary.
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>Can the agent act on its own?</summary>
+            <div class="faq-body">
+              <p>
+                No. A mission runs only after you approve it, and an approval covers one action, one set of
+                parameters and a limited time. Effects outside the machine — for example calling a webhook
+                — additionally require explicit confirmation, and the permission model refuses them
+                otherwise.
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>Is there a paid plan?</summary>
+            <div class="faq-body">
+              <p>
+                No pricing has been published for Dudu. The current release runs locally with your own
+                provider key and your own machine; there is no hosted subscription to buy yet. When
+                commercial terms exist, they will be published before anything is charged.
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>How do I get the mobile app?</summary>
+            <div class="faq-body">
+              <p>
+                You cannot yet — no Android or iOS build exists. Join the waiting list and you will be
+                told first when a beta is cut. Nothing on this page pretends otherwise.
+              </p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CTA + WAITING LIST ================= -->
+    <section class="section-ivory" id="wait">
+      <div class="wrap wait">
+        <div>
+          <p class="eyebrow">Get involved</p>
+          <h2>Follow the build</h2>
+          <p class="lead">
+            Dudu is developed in the open and released as verifiable artefacts. Leave an address so a human
+            can contact you when a new verified build lands, or when the mobile beta opens.
+          </p>
+          <ul class="muted" style="padding-left:18px">
+            <li>No newsletter, no third-party tracking, no cookies on this page.</li>
+            <li>Your address is stored only on the instance you submit it to, in that instance's own data folder — nowhere else, and no address is ever sent to a third party.</li>
+            <li>Nothing is sent automatically: there is no mailing system in Dudu yet, so a person reads the list and writes to you directly. Ask to be removed at any time and the entry is deleted from that folder.</li>
+            <li>One message per release, and only about releases.</li>
+          </ul>
+        </div>
+
+        <!-- Formulir nyata: POST ke /api/waiting-list pada origin yang sama.
+             Bila endpoint tidak terjangkau, pesan jujur ditampilkan — tidak ada keberhasilan karangan. -->
+        <form class="wait-form" id="wait-form" novalidate data-endpoint="/api/waiting-list">
+          <div class="field">
+            <label for="wl-email">Email</label>
+            <input id="wl-email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" />
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="wl-platform">Platform of interest</label>
+              <select id="wl-platform" name="platform">
+                <option value="web">Web app</option>
+                <option value="windows">Windows desktop</option>
+                <option value="linux">Linux desktop</option>
+                <option value="macos">macOS desktop</option>
+                <option value="android">Android</option>
+                <option value="ios">iOS</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="wl-role">I mostly use it for</label>
+              <select id="wl-role" name="role">
+                <option value="developer">Development</option>
+                <option value="startup">Startup / one-person company</option>
+                <option value="umkm">UMKM / digital business</option>
+                <option value="creator">Content creation</option>
+                <option value="knowledge">Knowledge work</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="wl-note">What would you want it to do? (optional)</label>
+            <textarea id="wl-note" name="note" rows="3" maxlength="500" placeholder="One line is plenty."></textarea>
+          </div>
+          <button class="btn btn-primary" type="submit" id="wl-submit">Join the waiting list</button>
+          <p class="form-msg" id="wl-msg" role="status" hidden></p>
+          <p class="form-note">
+            Submitted to the Dudu API on this origin. If no API is running here, the form says so plainly
+            instead of pretending it worked.
+          </p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= FOOTER ================= -->
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <a class="brand" href="#top">
+            <img src="assets/img/icon.svg" alt="" width="28" height="28" />
+            <span class="brand-name">Dudu</span>
+          </a>
+          <p class="muted" style="margin-top:12px;max-width:34ch">
+            A local-first AI workforce and agent OS. Goal → plan → permission → execution → verification →
+            artifact, with the receipts kept.
+          </p>
+        </div>
+        <div class="footer-col">
+          <h3 class="footer-heading">Product</h3>
+          <ul>
+            <li><a href="#channels">Channels</a></li>
+            <li><a href="#how-it-works">How it works</a></li>
+            <li><a href="#use-cases">Use cases</a></li>
+            <li><a href="#downloads">Downloads</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h3 class="footer-heading">Trust</h3>
+          <ul>
+            <li><a href="#security">Security model</a></li>
+            <li><a href="#security">Audit trail</a></li>
+            <li><a href="#faq">FAQ</a></li>
+            <li><a href="docs/SECURITY_NOTES.md">Security notes (doc)</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h3 class="footer-heading">Documentation</h3>
+          <ul>
+            <li><a href="docs/README.md">README (doc)</a></li>
+            <li><a href="docs/SECURITY_NOTES.md">Security notes (doc)</a></li>
+            <li><a href="#wait">Waiting list</a></li>
+            <li><a href="#top">Back to top</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 Dudu AI. Local-first software — your data stays on your machine.</span>
+        <span>Privacy: this page sets no cookies and loads no third-party analytics.</span>
+      </div>
+      <p class="muted" style="margin-top:10px;max-width:90ch">
+        Contact: no official public contact address or repository URL has been published yet, so none is
+        invented here. Until then, the documentation above and the waiting list are the real channels.
+      </p>
+    </div>
+  </footer>
+
+  <script src="assets/landing.js" defer></script>
+</body>
+</html>
