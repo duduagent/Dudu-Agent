@@ -16,6 +16,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "start": "node server/chat-server.mjs",
     "dev": "vite --port 5174",
     "server": "node server/chat-server.mjs",
     "cli": "node server/cli.mjs",
